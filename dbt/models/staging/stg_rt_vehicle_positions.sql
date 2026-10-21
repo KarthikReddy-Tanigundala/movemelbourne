@@ -1,0 +1,25 @@
+select
+    mode,
+    feed_ts,
+    poll_ts_utc,
+    entity_id,
+    vehicle_id,
+    vehicle_label,
+    trip_id,
+    route_id,
+    direction_id,
+    try_strptime(start_date, '%Y%m%d')::date as start_date,
+    trip_schedule_relationship,
+    latitude,
+    longitude,
+    bearing,
+    speed,
+    current_stop_sequence,
+    stop_id,
+    current_status,
+    coalesce(vehicle_ts, feed_ts) as observed_ts,
+    occupancy_status,
+    congestion_level,
+    source_file
+from {{ source('bronze', 'rt_vehicle_positions') }}
+where feed_ts is not null

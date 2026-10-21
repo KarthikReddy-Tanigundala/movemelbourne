@@ -22,6 +22,12 @@ inference:
   # A last-captured prediction is accepted as the observed arrival only if the snapshot that
   # carried it was taken within this many seconds of the predicted time (METHODOLOGY.md §2).
   freshness_window_s: 120
+  # Gap between consecutive snapshots above which events in between are a collection gap.
+  max_poll_gap_s: 180
+  # Primary observed-arrival method per mode: last_prediction | vehicle_position (ADR-004).
+  primary_method:
+    metro: last_prediction
+    tram: last_prediction
   # Vehicle-position fallback: within this distance of the stop with near-zero speed.
   vp_proximity_m: 30
   vp_max_speed_mps: 1.0

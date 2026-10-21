@@ -1,0 +1,34 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: >
+      DuckDB views over the local lake (data/lake/raw), created by
+      `movemelbourne.load.bronze`. Columns are exactly as written by the collector and the
+      static snapshot; `source_file` gives file-level lineage.
+    schema: bronze
+    tables:
+      - name: rt_trip_updates
+        description: GTFS-Realtime trip updates, one row per stop_time_update per poll (or one stop-less row per trip with none, e.g. CANCELED).
+        loaded_at_field: "to_timestamp(poll_ts_utc)"
+        freshness:
+          warn_after: {count: 2, period: hour}
+          error_after: {count: 6, period: hour}
+      - name: rt_vehicle_positions
+        description: GTFS-Realtime vehicle positions, one row per vehicle per poll.
+      - name: rt_service_alerts
+        description: GTFS-Realtime service alerts, one row per alert x informed entity x active period per poll.
+      - name: rt_coverage
+        description: Collector coverage log, one row per run x mode x feed.
+      - name: gtfs_routes
+      - name: gtfs_trips
+      - name: gtfs_stops
+      - name: gtfs_stop_times
+      - name: gtfs_shapes
+      - name: gtfs_schedule_versions
+        description: One row per static timetable release (feed_version) x mode branch.
+      - name: service_calendar
+        description: >
+          Services running on each service date per timetable version, with ref_epoch (the GTFS
+          "noon minus 12h" reference, DST-correct) computed in Python by
+          movemelbourne.ingest.load_schedule.

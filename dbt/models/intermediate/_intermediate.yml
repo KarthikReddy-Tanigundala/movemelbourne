@@ -1,0 +1,108 @@
+version: 2
+
+models:
+  - name: int_feed_version_in_force
+    description: Timetable release in force per mode and service date (ADR-005).
+    columns:
+      - name: feed_version
+        data_tests: [not_null]
+      - name: selection_rule
+        data_tests:
+          - accepted_values:
+              arguments: {values: ["latest_release_on_or_before_date", "earliest_release_covering_date"]}
+
+  - name: int_rt_polls
+    description: Distinct trip-update snapshots per mode with previous/next snapshot (collector heartbeat).
+
+  - name: int_collection_sessions
+    description: Periods the collector was meant to be running (runs < 1 h apart merged).
+
+  - name: int_scheduled_stop_events
+    description: Every scheduled stop event on collected service dates, from the timetable in force that day.
+    columns:
+      - name: event_id
+        description: mode|service_date|trip_id|stop_sequence.
+        data_tests: [unique, not_null]
+      - name: scheduled_arrival_epoch
+        data_tests: [not_null]
+
+  - name: int_scheduled_trips
+    description: Scheduled trips per service date.
+
+  - name: int_rt_trip_polls
+    description: Realtime trips per snapshot with resolved service date.
+    columns:
+      - name: service_date_source
+        data_tests:
+          - accepted_values:
+              arguments: {values: ["start_date", "derived_from_schedule", "unresolved_local_date"]}
+
+  - name: int_rt_trip_presence
+    description: Realtime trips per service date (first/last seen, cancelled/added flags).
+
+  - name: int_rt_stop_predictions_dedup
+    description: One row per service_date x trip x stop x snapshot after removing duplicate captures.
+
+  - name: int_observed_stop_events
+    description: Observed arrival inferred from trip-update predictions, with acceptance diagnostics.
+    columns:
+      - name: disappearance
+        data_tests:
+          - accepted_values:
+              arguments: {values: ["stop_dropped", "trip_ended", "collection_ended"]}
+
+  - name: int_vp_stop_arrivals
+    description: Observed arrival from vehicle positions (STOPPED_AT or slow and within the proximity radius).
+    columns:
+      - name: vp_signal
+        data_tests:
+          - accepted_values:
+              arguments: {values: ["stopped_at", "proximity"]}
+
+  - name: int_stop_events_matched
+    description: Scheduled stop events joined to inferred observations, with collection state and match status.
+    columns:
+      - name: event_id
+        data_tests: [unique, not_null]
+      - name: match_status
+        data_tests:
+          - accepted_values:
+              arguments: {values: ["observed", "unobserved", "collection_gap", "outside_collection", "cancelled", "skipped"]}
+      - name: collection_state
+        data_tests:
+          - accepted_values:
+              arguments: {values: ["collected", "collection_gap", "outside_collection"]}
+
+  - name: int_trip_outcomes
+    description: Scheduled trip outcome (ran / cancelled / no_data / partially_collected / outside_collection).
+
+  - name: int_rt_unmatched_trips
+    description: Realtime trips with no scheduled match on the resolved service date (join-quality signal).
+
+  - name: int_headways
+    description: Consecutive observed tram pairs at three proxy measurement points per route-direction.
+
+unit_tests:
+  - name: test_feed_version_in_force_picks_release_in_force
+    description: >
+      Each service date uses the latest release downloaded on or before it (1 Nov keeps the
+      26 Oct release even though the 2 Nov release also covers it; Cup Day 3 Nov uses the 2 Nov
+      release). Dates before the first release fall back to the earliest release covering them.
+    model: int_feed_version_in_force
+    given:
+      - input: ref('stg_service_calendar')
+        rows:
+          - {feed_version: "20261026_aaaa", mode: tram, service_date: "2026-10-20", service_id: T5, ref_epoch: 0}
+          - {feed_version: "20261026_aaaa", mode: tram, service_date: "2026-11-01", service_id: T5, ref_epoch: 0}
+          - {feed_version: "20261026_aaaa", mode: tram, service_date: "2026-11-03", service_id: T5, ref_epoch: 0}
+          - {feed_version: "20261102_bbbb", mode: tram, service_date: "2026-11-01", service_id: T5, ref_epoch: 0}
+          - {feed_version: "20261102_bbbb", mode: tram, service_date: "2026-11-03", service_id: UU, ref_epoch: 0}
+      - input: ref('stg_gtfs_schedule_versions')
+        rows:
+          - {feed_version: "20261026_aaaa", mode: tram, valid_from: "2026-10-26"}
+          - {feed_version: "20261102_bbbb", mode: tram, valid_from: "2026-11-02"}
+    expect:
+      rows:
+        - {mode: tram, service_date: "2026-10-20", feed_version: "20261026_aaaa", selection_rule: earliest_release_covering_date}
+        - {mode: tram, service_date: "2026-11-01", feed_version: "20261026_aaaa", selection_rule: latest_release_on_or_before_date}
+        - {mode: tram, service_date: "2026-11-03", feed_version: "20261102_bbbb", selection_rule: latest_release_on_or_before_date}

@@ -162,7 +162,14 @@ def _trip_fields(trip: Any) -> dict[str, Any]:
     }
 
 
-_TRIP_KNOWN = ("trip_id", "route_id", "direction_id", "start_date", "start_time", "schedule_relationship")
+_TRIP_KNOWN = (
+    "trip_id",
+    "route_id",
+    "direction_id",
+    "start_date",
+    "start_time",
+    "schedule_relationship",
+)
 
 
 def parse_trip_updates(feed: rt.FeedMessage, mode: str, poll_ts: int) -> list[dict[str, Any]]:
@@ -191,10 +198,20 @@ def parse_trip_updates(feed: rt.FeedMessage, mode: str, poll_ts: int) -> list[di
             "n_stop_time_updates": len(tu.stop_time_update),
         }
         if not tu.stop_time_update:
-            rows.append({**base, "stu_index": None, "stop_sequence": None, "stop_id": None,
-                         "arrival_time": None, "arrival_delay": None, "departure_time": None,
-                         "departure_delay": None, "stu_schedule_relationship": None,
-                         "extra_json": _dump({"trip": trip_extra, "trip_update": tu_extra})})
+            rows.append(
+                {
+                    **base,
+                    "stu_index": None,
+                    "stop_sequence": None,
+                    "stop_id": None,
+                    "arrival_time": None,
+                    "arrival_delay": None,
+                    "departure_time": None,
+                    "departure_delay": None,
+                    "stu_schedule_relationship": None,
+                    "extra_json": _dump({"trip": trip_extra, "trip_update": tu_extra}),
+                }
+            )
             continue
         for idx, stu in enumerate(tu.stop_time_update):
             arr = stu.arrival if stu.HasField("arrival") else None
@@ -220,7 +237,8 @@ def parse_trip_updates(feed: rt.FeedMessage, mode: str, poll_ts: int) -> list[di
                     "departure_time": _opt(dep, "time") if dep is not None else None,
                     "departure_delay": _opt(dep, "delay") if dep is not None else None,
                     "stu_schedule_relationship": _enum(
-                        stu, "schedule_relationship",
+                        stu,
+                        "schedule_relationship",
                         rt.TripUpdate.StopTimeUpdate.ScheduleRelationship,
                     ),
                     "extra_json": _dump(extra),
@@ -238,12 +256,33 @@ def parse_vehicle_positions(feed: rt.FeedMessage, mode: str, poll_ts: int) -> li
             continue
         vp = entity.vehicle
         pos = vp.position if vp.HasField("position") else None
-        trip = _trip_fields(vp.trip) if vp.HasField("trip") else dict.fromkeys(
-            ("trip_id", "route_id", "direction_id", "start_date", "start_time",
-             "trip_schedule_relationship"))
-        extra = _extra(vp, ("trip", "position", "current_stop_sequence", "stop_id",
-                            "current_status", "timestamp", "occupancy_status",
-                            "congestion_level"))
+        trip = (
+            _trip_fields(vp.trip)
+            if vp.HasField("trip")
+            else dict.fromkeys(
+                (
+                    "trip_id",
+                    "route_id",
+                    "direction_id",
+                    "start_date",
+                    "start_time",
+                    "trip_schedule_relationship",
+                )
+            )
+        )
+        extra = _extra(
+            vp,
+            (
+                "trip",
+                "position",
+                "current_stop_sequence",
+                "stop_id",
+                "current_status",
+                "timestamp",
+                "occupancy_status",
+                "congestion_level",
+            ),
+        )
         vehicle_desc = extra.pop("vehicle", {})
         vehicle_desc.pop("id", None)
         vehicle_desc.pop("label", None)
@@ -270,8 +309,12 @@ def parse_vehicle_positions(feed: rt.FeedMessage, mode: str, poll_ts: int) -> li
                 "stop_id": _opt(vp, "stop_id"),
                 "current_status": _enum(vp, "current_status", rt.VehiclePosition.VehicleStopStatus),
                 "vehicle_ts": _opt(vp, "timestamp"),
-                "occupancy_status": _enum(vp, "occupancy_status", rt.VehiclePosition.OccupancyStatus),
-                "congestion_level": _enum(vp, "congestion_level", rt.VehiclePosition.CongestionLevel),
+                "occupancy_status": _enum(
+                    vp, "occupancy_status", rt.VehiclePosition.OccupancyStatus
+                ),
+                "congestion_level": _enum(
+                    vp, "congestion_level", rt.VehiclePosition.CongestionLevel
+                ),
                 "extra_json": _dump(extra),
             }
         )
@@ -286,9 +329,21 @@ def parse_service_alerts(feed: rt.FeedMessage, mode: str, poll_ts: int) -> list[
         if not entity.HasField("alert"):
             continue
         alert = entity.alert
-        extra = _extra(alert, ("active_period", "informed_entity", "cause", "effect",
-                               "header_text", "description_text", "url"))
-        periods = [(_opt(p, "start"), _opt(p, "end")) for p in alert.active_period] or [(None, None)]
+        extra = _extra(
+            alert,
+            (
+                "active_period",
+                "informed_entity",
+                "cause",
+                "effect",
+                "header_text",
+                "description_text",
+                "url",
+            ),
+        )
+        periods = [(_opt(p, "start"), _opt(p, "end")) for p in alert.active_period] or [
+            (None, None)
+        ]
         informed = list(alert.informed_entity) or [None]
         common = {
             "mode": mode,
@@ -297,9 +352,12 @@ def parse_service_alerts(feed: rt.FeedMessage, mode: str, poll_ts: int) -> list[
             "alert_id": entity.id,
             "cause": _enum(alert, "cause", rt.Alert.Cause),
             "effect": _enum(alert, "effect", rt.Alert.Effect),
-            "header_text": _translation(alert.header_text) if alert.HasField("header_text") else None,
-            "description_text": (_translation(alert.description_text)
-                                 if alert.HasField("description_text") else None),
+            "header_text": _translation(alert.header_text)
+            if alert.HasField("header_text")
+            else None,
+            "description_text": (
+                _translation(alert.description_text) if alert.HasField("description_text") else None
+            ),
             "url": _translation(alert.url) if alert.HasField("url") else None,
             "extra_json": _dump(extra),
         }
@@ -309,8 +367,9 @@ def parse_service_alerts(feed: rt.FeedMessage, mode: str, poll_ts: int) -> list[
                 "route_id": _opt(ie, "route_id") if ie is not None else None,
                 "route_type": _opt(ie, "route_type") if ie is not None else None,
                 "stop_id": _opt(ie, "stop_id") if ie is not None else None,
-                "trip_id": (_opt(ie.trip, "trip_id")
-                            if ie is not None and ie.HasField("trip") else None),
+                "trip_id": (
+                    _opt(ie.trip, "trip_id") if ie is not None and ie.HasField("trip") else None
+                ),
                 "direction_id": _opt(ie, "direction_id") if ie is not None else None,
             }
             for start, end in periods:
@@ -325,7 +384,9 @@ PARSERS = {
 }
 
 
-def parse_feed(feed_name: str, content: bytes, mode: str, poll_ts: int) -> tuple[list[dict], int | None, int]:
+def parse_feed(
+    feed_name: str, content: bytes, mode: str, poll_ts: int
+) -> tuple[list[dict], int | None, int]:
     """Decode and flatten a payload. Returns (rows, header timestamp, entity count)."""
     message = decode(content)
     rows = PARSERS[feed_name](message, mode, poll_ts)

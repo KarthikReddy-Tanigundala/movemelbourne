@@ -1,0 +1,9 @@
+# No secrets here: the only setting is the DuckDB file path, taken from the environment.
+# scripts/run_pipeline.py sets MOVEMELBOURNE_DUCKDB (data/ for real data, tests/sample/ for CI).
+movemelbourne:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('MOVEMELBOURNE_DUCKDB', '../data/movemelbourne.duckdb') }}"
+      threads: 4

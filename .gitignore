@@ -15,7 +15,7 @@ data/
 dbt/target/
 dbt/dbt_packages/
 dbt/logs/
-dbt/profiles.yml
+
 logs/
 
 # Python
@@ -32,3 +32,7 @@ Thumbs.db
 .vscode/
 .idea/
 .claude/
+
+# Sample build outputs (the sample inputs under tests/sample/lake are committed)
+tests/sample/derived/
+tests/sample/*.duckdb*

@@ -1,0 +1,60 @@
+name: movemelbourne
+version: "0.1.0"
+config-version: 2
+profile: movemelbourne
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+analysis-paths: ["analyses"]
+clean-targets: ["target", "dbt_packages"]
+
+# Defaults only. config/study.yaml is the source of truth: scripts/run_pipeline.py passes these
+# values with --vars so the Python and SQL layers can never disagree.
+vars:
+  freshness_window_s: 120       # last-prediction acceptance window (METHODOLOGY §2)
+  max_poll_gap_s: 180           # gap between polls above which an event is a collection gap
+  vp_proximity_m: 30
+  vp_max_speed_mps: 1.0
+  min_match_rate: 0.95
+  delay_min_s: -1800
+  delay_max_s: 7200
+  min_sample_events: 30
+  bunching_ratio: 0.5
+  incremental_lookback_days: 2
+  inference_primary:            # ADR-004; revisit per mode after the first week of real data
+    metro: last_prediction
+    tram: last_prediction
+  date_spine_start: "2026-09-01"
+  date_spine_end: "2027-06-30"
+
+models:
+  movemelbourne:
+    +meta:
+      owner: Karthik Reddy Tanigundala
+    staging:
+      +materialized: view
+      +schema: staging
+    intermediate:
+      +materialized: table
+      +schema: intermediate
+    marts:
+      +materialized: table
+      +schema: marts
+
+seeds:
+  movemelbourne:
+    +schema: seeds
+    modes:
+      +column_types: {mode: varchar, mode_branch: varchar, mode_label: varchar}
+    otp_thresholds:
+      +column_types: {early_tolerance_s: integer, late_threshold_s: integer}
+    time_bands:
+      +column_types: {hour_of_day: integer}
+    vic_public_holidays:
+      +column_types: {holiday_date: date}
+
+tests:
+  movemelbourne:
+    +severity: error

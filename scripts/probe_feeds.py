@@ -18,7 +18,6 @@ import logging
 import sys
 from collections import Counter
 from datetime import UTC, datetime
-from pathlib import Path
 
 from movemelbourne import config
 from movemelbourne.collect.client import AuthError, FeedClient
@@ -86,8 +85,12 @@ def main() -> int:
         logger.error("TVOD_API_KEY not set; add it to .env first")
         return 2
     modes = args.modes or list(config.enabled_modes())
-    client = FeedClient(key, cfg["base_url"], auth_methods=cfg["auth_methods"],
-                        max_calls_per_min=cfg["max_calls_per_min_per_mode"])
+    client = FeedClient(
+        key,
+        cfg["base_url"],
+        auth_methods=cfg["auth_methods"],
+        max_calls_per_min=cfg["max_calls_per_min_per_mode"],
+    )
     FIXTURES.mkdir(parents=True, exist_ok=True)
     now = datetime.now(UTC)
     lines = [
@@ -118,22 +121,33 @@ def main() -> int:
             ts = msg.header.timestamp if msg.header.HasField("timestamp") else None
             lag = f"{res.fetched_at - ts:.0f}" if ts else ""
             local = f"{epoch_to_local(ts):%Y-%m-%d %H:%M:%S}" if ts else "missing"
-            lines.append(f"| {mode} | {feed} | {res.status} | `{res.auth_method}` | "
-                         f"{res.n_bytes:,} | {local} | {lag} | {len(msg.entity):,} |")
+            lines.append(
+                f"| {mode} | {feed} | {res.status} | `{res.auth_method}` | "
+                f"{res.n_bytes:,} | {local} | {lag} | {len(msg.entity):,} |"
+            )
             if feed == "trip-updates":
                 prof = trip_update_profile(msg)
                 profiles += [f"### {mode} trip updates", "", "| Field | Populated |", "|---|---|"]
                 profiles += [f"| {k} | {v} |" for k, v in prof.items()] + [""]
             (FIXTURES / f"{mode}__{feed}.pb").write_bytes(trimmed(msg))
-            logger.info("%s/%s: %s bytes, %d entities, auth %s", mode, feed, f"{res.n_bytes:,}",
-                        len(msg.entity), res.auth_method)
+            logger.info(
+                "%s/%s: %s bytes, %d entities, auth %s",
+                mode,
+                feed,
+                f"{res.n_bytes:,}",
+                len(msg.entity),
+                res.auth_method,
+            )
     lines += ["", "## Trip-update field population", ""] + profiles
-    lines += ["## Reading this table", "",
-              "- **Auth method** is the first method in `config/feeds.yaml: auth_methods` that "
-              "the gateway accepted (ADR-008).",
-              "- **arrival.time vs arrival.delay** population decides the observed-arrival "
-              "inference method per mode (ADR-004).",
-              "- **Lag** = poll time minus `header.timestamp`; DTP caches responses ~30 s."]
+    lines += [
+        "## Reading this table",
+        "",
+        "- **Auth method** is the first method in `config/feeds.yaml: auth_methods` that "
+        "the gateway accepted (ADR-008).",
+        "- **arrival.time vs arrival.delay** population decides the observed-arrival "
+        "inference method per mode (ADR-004).",
+        "- **Lag** = poll time minus `header.timestamp`; DTP caches responses ~30 s.",
+    ]
     REPORT.write_text("\n".join(lines) + "\n", encoding="utf-8")
     logger.info("wrote %s", REPORT)
     if gate_failed:

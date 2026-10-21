@@ -1,0 +1,37 @@
+{
+  "synthetic_realtime": true,
+  "timetable_feed_version": "20261021_b1608bd3",
+  "routes": {
+    "2": [
+      "aus:vic:vic-02-ALM:",
+      "aus:vic:vic-02-GWY:"
+    ],
+    "3": [
+      "aus:vic:vic-03-109:",
+      "aus:vic:vic-03-96:"
+    ]
+  },
+  "windows": [
+    {
+      "date": "2026-10-22",
+      "start": "07:00",
+      "end": "09:00"
+    },
+    {
+      "date": "2026-10-24",
+      "start": "11:00",
+      "end": "12:00"
+    }
+  ],
+  "simulated_gap": {
+    "date": "2026-10-24",
+    "start": "11:20",
+    "end": "11:32"
+  },
+  "trips": {
+    "normal": 1399,
+    "cancelled": 19,
+    "no_data": 10
+  },
+  "generator": "scripts/make_sample.py (numpy seed 42)"
+}

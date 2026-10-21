@@ -115,8 +115,10 @@ class FeedClient:
         self.timeout = (connect_timeout_s, read_timeout_s)
         self.session = session or requests.Session()
         self.session.headers.update(
-            {"Accept": "application/x-protobuf, application/octet-stream, */*",
-             "User-Agent": "MoveMelbourne/0.1 (portfolio research; github.com/KarthikReddy-Tanigundala)"}
+            {
+                "Accept": "application/x-protobuf, application/octet-stream, */*",
+                "User-Agent": "MoveMelbourne/0.1 (portfolio research; github.com/KarthikReddy-Tanigundala)",
+            }
         )
         self.limiter = limiter or RateLimiter(max_calls=max_calls_per_min)
         self.auth_cache: dict[str, str] = {}
@@ -133,7 +135,9 @@ class FeedClient:
         return {"params": {"subscription-key": self._key}}
 
     @retry(
-        retry=retry_if_exception_type((RetryableHTTPError, requests.ConnectionError, requests.Timeout)),
+        retry=retry_if_exception_type(
+            (RetryableHTTPError, requests.ConnectionError, requests.Timeout)
+        ),
         wait=wait_random_exponential(multiplier=2, max=30),
         stop=stop_after_attempt(4),
         reraise=True,
@@ -157,7 +161,9 @@ class FeedClient:
         for method in self.auth_methods:
             response = self._get(mode, feed, method)
             if response.status_code not in _AUTH_FAILURE:
-                logger.info("auth negotiated for %s: %s (HTTP %s)", mode, method, response.status_code)
+                logger.info(
+                    "auth negotiated for %s: %s (HTTP %s)", mode, method, response.status_code
+                )
                 self.auth_cache[mode] = method
                 return response, method
             last_status = response.status_code
@@ -173,8 +179,12 @@ class FeedClient:
         else:
             response = self._get(mode, feed, method)
             if response.status_code in _AUTH_FAILURE:
-                logger.warning("cached auth %s for %s now HTTP %s; re-negotiating",
-                               method, mode, response.status_code)
+                logger.warning(
+                    "cached auth %s for %s now HTTP %s; re-negotiating",
+                    method,
+                    mode,
+                    response.status_code,
+                )
                 self.auth_cache.pop(mode, None)
                 response, method = self._negotiate(mode, feed)
         if response.status_code != 200:

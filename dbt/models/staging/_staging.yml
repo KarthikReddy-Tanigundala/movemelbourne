@@ -1,0 +1,73 @@
+version: 2
+
+models:
+  - name: stg_rt_trip_updates
+    description: Trip updates typed and renamed; one row per stop_time_update per snapshot (stop-less rows for trips with none).
+    columns:
+      - name: mode
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments: {values: ["metro", "tram", "bus", "vline"]}
+      - name: feed_ts
+        description: FeedHeader.timestamp (epoch seconds, UTC). Identifies the snapshot.
+        data_tests: [not_null]
+      - name: trip_schedule_relationship
+        data_tests:
+          - accepted_values:
+              arguments: {values: ["SCHEDULED", "ADDED", "UNSCHEDULED", "CANCELED", "REPLACEMENT", "DUPLICATED", "DELETED", "NEW"]}
+      - name: stu_schedule_relationship
+        data_tests:
+          - accepted_values:
+              arguments: {values: ["SCHEDULED", "SKIPPED", "NO_DATA", "UNSCHEDULED"]}
+      - name: direction_id
+        data_tests:
+          - accepted_values:
+              arguments: {values: [0, 1]}
+      - name: has_stop
+        description: True when the row carries a stop (stop_id or stop_sequence).
+
+  - name: stg_rt_vehicle_positions
+    description: Vehicle positions typed; observed_ts = VehiclePosition.timestamp, falling back to the feed timestamp.
+    columns:
+      - name: current_status
+        data_tests:
+          - accepted_values:
+              arguments: {values: ["INCOMING_AT", "STOPPED_AT", "IN_TRANSIT_TO"]}
+
+  - name: stg_rt_service_alerts
+    description: Service alerts typed; one row per alert x informed entity x active period per snapshot.
+
+  - name: stg_rt_coverage
+    description: Collector coverage log with the Melbourne-local run date.
+    columns:
+      - name: feed
+        data_tests:
+          - accepted_values:
+              arguments: {values: ["trip-updates", "vehicle-positions", "service-alerts"]}
+
+  - name: stg_gtfs_routes
+    description: Routes per timetable version, with the replacement-bus flag.
+  - name: stg_gtfs_trips
+    description: Trips per timetable version.
+  - name: stg_gtfs_stop_times
+    description: Stop times per timetable version; arrival/departure as seconds since the service-day reference (may exceed 86,400).
+    columns:
+      - name: arrival_secs
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 172800}
+  - name: stg_gtfs_stops
+    description: Stops per timetable version with station_key (parent station or the stop itself).
+  - name: stg_gtfs_shapes
+    description: Shape points per timetable version.
+  - name: stg_gtfs_schedule_versions
+    description: Timetable releases with valid_from (download date) and calendar bounds.
+    columns:
+      - name: feed_version
+        data_tests: [not_null]
+  - name: stg_service_calendar
+    description: Services running per service date per version, with the GTFS reference epoch.
+    columns:
+      - name: ref_epoch
+        data_tests: [not_null]

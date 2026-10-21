@@ -51,7 +51,9 @@ def service_day_reference_epoch(service_date: str | date, tz: ZoneInfo = MELBOUR
 
 def scheduled_epoch(service_date: str | date, gtfs_time: str | int | None) -> int | None:
     """Scheduled instant (epoch seconds) of a ``stop_times`` value on a given service date."""
-    secs = gtfs_time if isinstance(gtfs_time, int) or gtfs_time is None else parse_gtfs_time(gtfs_time)
+    secs = (
+        gtfs_time if isinstance(gtfs_time, int) or gtfs_time is None else parse_gtfs_time(gtfs_time)
+    )
     if secs is None:
         return None
     return service_day_reference_epoch(service_date) + secs

@@ -1,0 +1,25 @@
+hour_of_day,time_band,is_peak,sort_order
+0,Night,false,5
+1,Night,false,5
+2,Night,false,5
+3,Night,false,5
+4,Night,false,5
+5,Night,false,5
+6,Night,false,5
+7,AM peak,true,1
+8,AM peak,true,1
+9,Inter-peak,false,2
+10,Inter-peak,false,2
+11,Inter-peak,false,2
+12,Inter-peak,false,2
+13,Inter-peak,false,2
+14,Inter-peak,false,2
+15,Inter-peak,false,2
+16,PM peak,true,3
+17,PM peak,true,3
+18,PM peak,true,3
+19,Evening,false,4
+20,Evening,false,4
+21,Evening,false,4
+22,Evening,false,4
+23,Night,false,5

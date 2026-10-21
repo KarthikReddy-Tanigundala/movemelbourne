@@ -18,8 +18,14 @@ from movemelbourne.utils.timeutil import (
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
-    [("00:00:00", 0), ("04:57:00", 17_820), ("25:12:00", 90_720), (" 5:00:00", 18_000),
-     ("", None), (None, None)],
+    [
+        ("00:00:00", 0),
+        ("04:57:00", 17_820),
+        ("25:12:00", 90_720),
+        (" 5:00:00", 18_000),
+        ("", None),
+        (None, None),
+    ],
 )
 def test_parse_gtfs_time(raw, expected):
     assert parse_gtfs_time(raw) == expected
@@ -61,7 +67,10 @@ def test_dst_end_day_reference_is_one_am_local():
     ref = epoch_to_local(service_day_reference_epoch("20260405"))
     assert (ref.day, ref.hour) == (5, 1)
     # A trip timetabled across the change still has the elapsed time the timetable says.
-    assert scheduled_epoch("20260405", "04:00:00") - scheduled_epoch("20260405", "01:00:00") == 3 * 3600
+    assert (
+        scheduled_epoch("20260405", "04:00:00") - scheduled_epoch("20260405", "01:00:00")
+        == 3 * 3600
+    )
 
 
 def test_service_day_spanning_dst_change_has_25_hour_span():

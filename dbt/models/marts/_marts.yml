@@ -1,0 +1,833 @@
+version: 2
+
+# Shared column descriptions (YAML anchors keep the docs consistent across marts).
+x-docs:
+  service_date: &service_date "GTFS service date (the operating day a trip belongs to; after-midnight trips belong to the previous date)."
+  date_key: &date_key "Service date as YYYYMMDD integer; FK to dim_date."
+  mode: &mode "Mode code: metro or tram (bus/vline are stretch scope)."
+  route_key: &route_key "Surrogate key md5(mode|route_id); FK to dim_route."
+  stop_key: &stop_key "Surrogate key md5(mode|stop_id); FK to dim_stop."
+  n_in_scope: &n_in_scope "Scheduled stop events inside a collector session and not cancelled/skipped (the coverage denominator)."
+  n_observed: &n_observed "Observed stop events eligible for OTP (inferred arrival, delay inside the plausible range)."
+  n_on_time: &n_on_time "Observed events inside the mode's on-time window (otp_thresholds)."
+  otp_pct: &otp_pct "MoveMelbourne proxy OTP: n_on_time / n_observed x 100. Not an official figure."
+  coverage_pct: &coverage_pct "n_observed / n_in_scope x 100: share of collectable stop events we actually observed."
+  p50: &p50 "Median delay (seconds) of observed events."
+  p85: &p85 "85th percentile delay (seconds)."
+  p90: &p90 "90th percentile delay (seconds)."
+  p95: &p95 "95th percentile delay (seconds)."
+  sample_ok: &sample_ok "True when n_observed >= min_sample_events (default 30); smaller cells are greyed out, never ranked."
+  reliability: &reliability "Service delivery: 1 - confirmed cancelled / reliability-eligible scheduled trips, x 100."
+  trips_eligible: &trips_eligible "Scheduled trips whose whole timetabled run fell inside collected time."
+  trips_cancelled: &trips_cancelled "Eligible trips confirmed CANCELED in the trip-updates feed."
+
+models:
+  - name: dim_date
+    description: Conformed date dimension (1 Sep 2026 - 30 Jun 2027) with Victorian public holidays and timetable day type.
+    columns:
+      - name: date_key
+        description: *date_key
+        data_tests: [unique, not_null]
+      - name: date_day
+        description: Calendar date.
+      - name: day_of_week
+        description: ISO day of week (1 = Monday).
+      - name: day_name
+        description: Day name.
+      - name: is_weekend
+        description: Saturday or Sunday.
+      - name: is_public_holiday
+        description: Victorian public holiday (incl. Melbourne Cup Day in metropolitan Melbourne).
+      - name: holiday_name
+        description: Holiday name when applicable.
+      - name: day_type
+        description: Weekday / Saturday / Sunday or public holiday (public holidays run Sunday-like timetables).
+        data_tests:
+          - accepted_values:
+              arguments: {values: ["Weekday", "Saturday", "Sunday / public holiday"]}
+      - name: week_start
+        description: Monday of the ISO week.
+      - name: month_start
+        description: First day of the month.
+      - name: year_month
+        description: YYYY-MM label.
+
+  - name: dim_time_band
+    description: Hour of day (local scheduled time) with its time band.
+    columns:
+      - name: time_band_key
+        description: Hour of day 0-23; FK target for facts.
+        data_tests: [unique, not_null]
+      - name: hour_of_day
+        description: Hour of day 0-23.
+      - name: time_band
+        description: AM peak (07-09), Inter-peak (09-16), PM peak (16-19), Evening (19-23), Night (23-07).
+      - name: is_peak
+        description: True for AM and PM peak hours.
+      - name: time_band_sort
+        description: Display order of the band.
+
+  - name: dim_mode
+    description: Modes with their on-time definition and contract targets.
+    columns:
+      - name: mode
+        description: *mode
+        data_tests: [unique, not_null]
+      - name: mode_branch
+        description: GTFS Schedule outer-zip folder number.
+      - name: mode_label
+        description: Display name.
+      - name: in_core_scope
+        description: True for the core study modes (ADR-001).
+      - name: early_tolerance_s
+        description: Seconds early still on time (null = early running not penalised).
+      - name: late_threshold_s
+        description: Seconds late still on time (299 = 4 min 59 s).
+      - name: target_punctuality_pct
+        description: Operator contract punctuality target (%).
+      - name: target_reliability_pct
+        description: Operator contract reliability target (%).
+      - name: definition_source
+        description: Source of the on-time definition.
+      - name: definition_verified_on
+        description: Date the definition was verified.
+
+  - name: dim_route
+    description: Routes (SCD type 1 across timetable versions).
+    columns:
+      - name: route_key
+        description: *route_key
+        data_tests: [unique, not_null]
+      - name: mode
+        description: *mode
+      - name: route_id
+        description: GTFS route_id exactly as published by DTP.
+      - name: route_short_name
+        description: Short name (tram route number, or train line name).
+      - name: route_long_name
+        description: Long name.
+      - name: route_type
+        description: GTFS route_type (0 tram, 400 urban railway extended type).
+      - name: route_color
+        description: Route colour hex (no #).
+      - name: route_text_color
+        description: Route text colour hex (no #).
+      - name: is_replacement_bus
+        description: Metro replacement-bus route (excluded from OTP; not in the realtime feed).
+      - name: route_display_name
+        description: Label for charts ("Route 109" for trams, line name for trains).
+      - name: latest_feed_version
+        description: Most recent timetable version containing the route.
+
+  - name: dim_stop
+    description: Stops and platforms with station roll-up and WKT point geometry (EPSG:4326).
+    columns:
+      - name: stop_key
+        description: *stop_key
+        data_tests: [unique, not_null]
+      - name: mode
+        description: *mode
+      - name: stop_id
+        description: GTFS stop_id as published.
+      - name: stop_name
+        description: Stop or platform name.
+      - name: stop_lat
+        description: Latitude (WGS84).
+      - name: stop_lon
+        description: Longitude (WGS84).
+      - name: geom_wkt
+        description: WKT point, lon/lat order.
+      - name: location_type
+        description: GTFS location_type (0 stop/platform, 1 station).
+      - name: parent_station
+        description: Parent station stop_id for platforms.
+      - name: platform_code
+        description: Platform number (metro).
+      - name: station_key
+        description: Parent station id, or the stop itself when it has no parent.
+      - name: station_name
+        description: Name of the parent station (or the stop).
+      - name: latest_feed_version
+        description: Most recent timetable version containing the stop.
+
+  - name: dim_trip
+    description: Timetable trips (SCD type 1 across timetable versions).
+    columns:
+      - name: trip_key
+        description: Surrogate key md5(mode|trip_id).
+        data_tests: [unique, not_null]
+      - name: mode
+        description: *mode
+      - name: trip_id
+        description: GTFS trip_id as published (never reshaped).
+      - name: route_id
+        description: Route of the trip.
+      - name: route_key
+        description: *route_key
+      - name: direction_id
+        description: GTFS direction (0/1).
+      - name: trip_headsign
+        description: Destination shown to passengers.
+      - name: shape_id
+        description: Shape of the trip's path.
+      - name: service_id
+        description: Calendar service id (latest version).
+      - name: latest_feed_version
+        description: Most recent timetable version containing the trip.
+
+  - name: dim_feed_version
+    description: Timetable releases (one per weekly snapshot x mode) - the versioned-join audit trail.
+    columns:
+      - name: feed_version
+        description: <download date>_<sha256 prefix>.
+        data_tests: [not_null]
+      - name: mode
+        description: *mode
+      - name: mode_branch
+        description: Outer-zip folder.
+      - name: valid_from
+        description: Download date; the release is used for service dates on or after this.
+      - name: calendar_start
+        description: First service date in the release calendar.
+      - name: calendar_end
+        description: Last service date in the release calendar.
+      - name: sha256
+        description: SHA-256 of the downloaded gtfs.zip.
+      - name: downloaded_at_utc
+        description: Download timestamp.
+      - name: n_trips
+        description: Trips in the release for this mode.
+      - name: n_stop_times
+        description: Stop times in the release for this mode.
+      - name: n_stops
+        description: Stops in the release for this mode.
+
+  - name: fact_stop_event
+    description: >
+      Grain: service_date x mode x trip x stop_sequence. Every scheduled stop event on collected
+      dates, with the inferred observed arrival (or why there is none). Incremental
+      (delete+insert, recent days rebuilt).
+    columns:
+      - name: stop_event_key
+        description: md5(event_id).
+        data_tests: [unique, not_null]
+      - name: event_id
+        description: mode|service_date|trip_id|stop_sequence.
+      - name: date_key
+        description: *date_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: service_date
+        description: *service_date
+      - name: mode
+        description: *mode
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_mode'), field: mode}
+      - name: route_key
+        description: *route_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_route'), field: route_key}
+      - name: stop_key
+        description: *stop_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_stop'), field: stop_key}
+      - name: trip_key
+        description: Surrogate key md5(mode|trip_id); FK to dim_trip.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_trip'), field: trip_key}
+      - name: feed_version
+        description: Timetable release in force on the service date.
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_feed_version'), field: feed_version}
+      - name: time_band_key
+        description: Local hour of the scheduled arrival; FK to dim_time_band.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_time_band'), field: time_band_key}
+      - name: trip_id
+        description: GTFS trip_id.
+      - name: direction_id
+        description: GTFS direction (0/1).
+      - name: stop_sequence
+        description: GTFS stop_sequence within the trip.
+      - name: stop_position
+        description: 1-based position of the stop within the trip.
+      - name: n_trip_stops
+        description: Number of stops on the trip.
+      - name: is_first_stop
+        description: Origin stop of the trip.
+      - name: is_last_stop
+        description: Destination stop of the trip.
+      - name: shape_dist_traveled_m
+        description: Distance along the shape (metres) at this stop.
+      - name: scheduled_arrival_epoch
+        description: Scheduled arrival, epoch seconds (ref_epoch + GTFS seconds; DST-correct).
+        data_tests: [not_null]
+      - name: scheduled_arrival_local
+        description: Scheduled arrival, Melbourne local time.
+      - name: observed_arrival_epoch
+        description: Inferred observed arrival, epoch seconds (null if not observed).
+      - name: observed_arrival_local
+        description: Inferred observed arrival, Melbourne local time.
+      - name: delay_seconds
+        description: observed - scheduled (seconds; negative = early).
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: -1800, max_value: 7200, where: "is_otp_eligible"}
+      - name: delay_minutes
+        description: delay_seconds / 60.
+      - name: inference_method
+        description: How the arrival was inferred.
+        data_tests:
+          - accepted_values:
+              arguments: {values: ["last_prediction", "vehicle_position"]}
+      - name: prediction_type
+        description: Whether the accepted prediction was an absolute time or delay-only.
+      - name: stop_match_method
+        description: How the realtime stop was matched to the timetable (stop_sequence, or stop_id/parent station).
+      - name: vp_minus_tu_s
+        description: Vehicle-position arrival minus trip-update arrival when both exist (method agreement).
+      - name: collection_state
+        description: collected / collection_gap / outside_collection at the scheduled time.
+        data_tests:
+          - accepted_values:
+              arguments: {values: ["collected", "collection_gap", "outside_collection"]}
+      - name: match_status
+        description: observed / unobserved / collection_gap / outside_collection / cancelled / skipped.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments: {values: ["observed", "unobserved", "collection_gap", "outside_collection", "cancelled", "skipped"]}
+      - name: is_in_coverage_scope
+        description: Counts in the coverage denominator (in a session, not cancelled/skipped).
+      - name: is_observed
+        description: match_status = observed.
+      - name: is_delay_outlier
+        description: Observed delay outside [delay_min_s, delay_max_s]; quarantined to audit_outliers.
+      - name: is_otp_eligible
+        description: Observed and not an outlier.
+      - name: is_on_time
+        description: Inside the mode's on-time window (null when not OTP-eligible).
+      - name: delay_band
+        description: Early / On time / Minor late (5-15 min) / Major late (>15 min).
+        data_tests:
+          - accepted_values:
+              arguments: {values: ["Early", "On time", "Minor late (5-15 min)", "Major late (>15 min)"]}
+
+  - name: fact_trip
+    description: Grain service_date x mode x scheduled trip; drives reliability.
+    columns:
+      - name: trip_event_key
+        description: md5(mode|service_date|trip_id).
+        data_tests: [unique, not_null]
+      - name: date_key
+        description: *date_key
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: service_date
+        description: *service_date
+      - name: mode
+        description: *mode
+      - name: route_key
+        description: *route_key
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_route'), field: route_key}
+      - name: trip_key
+        description: FK to dim_trip.
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_trip'), field: trip_key}
+      - name: feed_version
+        description: Timetable release in force.
+      - name: trip_id
+        description: GTFS trip_id.
+      - name: direction_id
+        description: GTFS direction.
+      - name: trip_headsign
+        description: Destination.
+      - name: time_band_key
+        description: Local hour of the scheduled first departure.
+      - name: first_departure_epoch
+        description: Scheduled first departure (epoch).
+      - name: first_departure_local
+        description: Scheduled first departure (local).
+      - name: last_arrival_epoch
+        description: Scheduled last arrival (epoch).
+      - name: n_stops
+        description: Scheduled stops.
+      - name: n_collected_stops
+        description: Stops whose scheduled time fell in collected time.
+      - name: n_observed_stops
+        description: Stops with an inferred arrival.
+      - name: origin_delay_s
+        description: Delay at the first stop (s).
+      - name: destination_delay_s
+        description: Delay at the last stop (s).
+      - name: max_delay_s
+        description: Largest stop delay on the trip (s).
+      - name: in_feed
+        description: Trip appeared in the trip-updates feed.
+      - name: is_canceled
+        description: Trip was flagged CANCELED in any snapshot.
+      - name: n_polls
+        description: Snapshots in which the trip appeared.
+      - name: is_reliability_eligible
+        description: Whole timetabled run inside collected time.
+      - name: trip_outcome
+        description: ran / cancelled / no_data / partially_collected / outside_collection.
+        data_tests:
+          - accepted_values:
+              arguments: {values: ["ran", "cancelled", "no_data", "partially_collected", "outside_collection"]}
+      - name: is_confirmed_cancelled
+        description: trip_outcome = cancelled.
+      - name: is_no_data
+        description: Never seen in the feed although we were collecting for its whole run.
+
+  - name: fact_alert
+    description: Service alerts deduplicated across snapshots; grain alert x informed entity x active period.
+    columns:
+      - name: alert_key
+        description: md5 of the grain columns.
+        data_tests: [unique, not_null]
+      - name: mode
+        description: *mode
+      - name: alert_id
+        description: FeedEntity id of the alert.
+      - name: route_key
+        description: *route_key
+      - name: stop_key
+        description: *stop_key
+      - name: route_id
+        description: Informed route.
+      - name: stop_id
+        description: Informed stop.
+      - name: trip_id
+        description: Informed trip.
+      - name: direction_id
+        description: Informed direction.
+      - name: active_start_epoch
+        description: Active period start (epoch; null = open).
+      - name: active_end_epoch
+        description: Active period end (epoch; null = open).
+      - name: active_start_local
+        description: Active period start (local).
+      - name: active_end_local
+        description: Active period end (local).
+      - name: cause
+        description: GTFS-RT cause enum.
+      - name: effect
+        description: GTFS-RT effect enum.
+      - name: header_text
+        description: Alert headline (English).
+      - name: description_text
+        description: Alert detail (English).
+      - name: first_seen_feed_ts
+        description: First snapshot carrying the alert.
+      - name: last_seen_feed_ts
+        description: Last snapshot carrying the alert.
+      - name: n_snapshots
+        description: Snapshots carrying the alert.
+
+  - name: audit_outliers
+    description: Observed events with implausible delays, quarantined for review (excluded from OTP).
+    columns:
+      - name: stop_event_key
+        description: FK to fact_stop_event.
+        data_tests: [unique]
+      - name: service_date
+        description: *service_date
+      - name: mode
+        description: *mode
+      - name: route_key
+        description: *route_key
+      - name: stop_key
+        description: *stop_key
+      - name: trip_id
+        description: GTFS trip_id.
+      - name: stop_sequence
+        description: Stop sequence.
+      - name: scheduled_arrival_local
+        description: Scheduled arrival (local).
+      - name: observed_arrival_local
+        description: Inferred arrival (local).
+      - name: delay_seconds
+        description: Delay (s).
+      - name: inference_method
+        description: Inference method.
+      - name: outlier_reason
+        description: too_early / too_late.
+
+  - name: agg_otp_daily_mode
+    description: Network health per mode per service date.
+    columns:
+      - name: service_date
+        description: *service_date
+        data_tests: [not_null]
+      - name: date_key
+        description: *date_key
+      - name: mode
+        description: *mode
+      - name: n_in_scope
+        description: *n_in_scope
+      - name: n_observed
+        description: *n_observed
+      - name: n_on_time
+        description: *n_on_time
+      - name: otp_pct
+        description: *otp_pct
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 100}
+      - name: otp_wilson_low_pct
+        description: Wilson 95% lower bound of otp_pct.
+      - name: coverage_pct
+        description: *coverage_pct
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 100}
+      - name: early_pct
+        description: Share of observed events that were early beyond tolerance (%).
+      - name: minor_late_pct
+        description: Share 5-15 min late (%).
+      - name: major_late_pct
+        description: Share more than 15 min late (%).
+      - name: p50_delay_s
+        description: *p50
+      - name: p85_delay_s
+        description: *p85
+      - name: p90_delay_s
+        description: *p90
+      - name: p95_delay_s
+        description: *p95
+      - name: mean_delay_s
+        description: Mean delay (s) - shown only next to the percentiles, never alone.
+      - name: n_trips_eligible
+        description: *trips_eligible
+      - name: n_trips_cancelled
+        description: *trips_cancelled
+      - name: n_trips_no_data
+        description: Eligible trips never seen in the feed.
+      - name: reliability_pct
+        description: *reliability
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 100}
+      - name: is_sample_sufficient
+        description: *sample_ok
+
+  - name: agg_otp_daily_route
+    description: Proxy OTP, delay and reliability per route per service date.
+    columns:
+      - name: route_day_key
+        description: md5(service_date|route_key).
+        data_tests: [unique, not_null]
+      - name: service_date
+        description: *service_date
+      - name: date_key
+        description: *date_key
+      - name: mode
+        description: *mode
+      - name: route_key
+        description: *route_key
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_route'), field: route_key}
+      - name: n_in_scope
+        description: *n_in_scope
+      - name: n_observed
+        description: *n_observed
+      - name: n_on_time
+        description: *n_on_time
+      - name: otp_pct
+        description: *otp_pct
+      - name: coverage_pct
+        description: *coverage_pct
+      - name: major_late_pct
+        description: Share more than 15 min late (%).
+      - name: p50_delay_s
+        description: *p50
+      - name: p90_delay_s
+        description: *p90
+      - name: p95_delay_s
+        description: *p95
+      - name: n_trips_eligible
+        description: *trips_eligible
+      - name: n_trips_cancelled
+        description: *trips_cancelled
+      - name: reliability_pct
+        description: *reliability
+      - name: is_sample_sufficient
+        description: *sample_ok
+
+  - name: agg_otp_route
+    description: Whole-study route ranking by the Wilson lower bound of proxy OTP.
+    columns:
+      - name: mode
+        description: *mode
+      - name: route_key
+        description: *route_key
+        data_tests: [unique, not_null]
+      - name: n_in_scope
+        description: *n_in_scope
+      - name: n_observed
+        description: *n_observed
+      - name: n_on_time
+        description: *n_on_time
+      - name: n_trips_observed
+        description: Distinct trips with at least one observed event.
+      - name: otp_pct
+        description: *otp_pct
+      - name: otp_wilson_low_pct
+        description: Wilson 95% lower bound of otp_pct (ranking key).
+      - name: coverage_pct
+        description: *coverage_pct
+      - name: p50_delay_s
+        description: *p50
+      - name: p90_delay_s
+        description: *p90
+      - name: p95_delay_s
+        description: *p95
+      - name: major_late_pct
+        description: Share more than 15 min late (%).
+      - name: n_trips_eligible
+        description: *trips_eligible
+      - name: n_trips_cancelled
+        description: *trips_cancelled
+      - name: reliability_pct
+        description: *reliability
+      - name: is_sample_sufficient
+        description: *sample_ok
+      - name: otp_rank_in_mode
+        description: Rank within mode by otp_wilson_low_pct (null when the sample is insufficient).
+
+  - name: agg_otp_stop
+    description: Stop-level proxy OTP and delay for the delay map.
+    columns:
+      - name: mode
+        description: *mode
+      - name: stop_key
+        description: *stop_key
+        data_tests: [unique, not_null]
+      - name: stop_id
+        description: GTFS stop_id.
+      - name: stop_name
+        description: Stop name.
+      - name: station_name
+        description: Station name.
+      - name: stop_lat
+        description: Latitude.
+      - name: stop_lon
+        description: Longitude.
+      - name: n_observed
+        description: *n_observed
+      - name: n_in_scope
+        description: *n_in_scope
+      - name: otp_pct
+        description: *otp_pct
+      - name: p50_delay_s
+        description: *p50
+      - name: p90_delay_s
+        description: *p90
+      - name: is_sample_sufficient
+        description: *sample_ok
+
+  - name: agg_otp_hour_dow
+    description: Proxy OTP by day type, day of week and hour of scheduled time.
+    columns:
+      - name: mode
+        description: *mode
+      - name: day_type
+        description: Weekday / Saturday / Sunday or public holiday.
+      - name: day_of_week
+        description: ISO day of week.
+      - name: day_name
+        description: Day name.
+      - name: hour_of_day
+        description: Local scheduled hour.
+      - name: time_band
+        description: Time band of the hour.
+      - name: n_observed
+        description: *n_observed
+      - name: otp_pct
+        description: *otp_pct
+      - name: p90_delay_s
+        description: *p90
+      - name: is_sample_sufficient
+        description: *sample_ok
+
+  - name: agg_segment_delay
+    description: Delay added between adjacent observed stops, per route segment (where time is lost).
+    columns:
+      - name: segment_key
+        description: md5(route_key|from_stop_key|to_stop_key).
+        data_tests: [unique, not_null]
+      - name: mode
+        description: *mode
+      - name: route_key
+        description: *route_key
+      - name: from_stop_key
+        description: Segment start stop.
+      - name: to_stop_key
+        description: Segment end stop.
+      - name: from_stop_name
+        description: Start stop name.
+      - name: to_stop_name
+        description: End stop name.
+      - name: from_lat
+        description: Start latitude.
+      - name: from_lon
+        description: Start longitude.
+      - name: to_lat
+        description: End latitude.
+      - name: to_lon
+        description: End longitude.
+      - name: n_pairs
+        description: Observed adjacent stop pairs.
+      - name: median_added_delay_s
+        description: Median delay added over the segment (s; negative = recovered time).
+      - name: p90_added_delay_s
+        description: 90th percentile delay added (s).
+      - name: mean_added_delay_s
+        description: Mean delay added (s).
+      - name: is_sample_sufficient
+        description: n_pairs >= min_sample_events.
+
+  - name: agg_headway_adherence
+    description: Tram headway regularity per route x direction x service date x time band.
+    columns:
+      - name: service_date
+        description: *service_date
+      - name: date_key
+        description: *date_key
+      - name: route_key
+        description: *route_key
+      - name: direction_id
+        description: GTFS direction.
+      - name: time_band
+        description: Time band of the scheduled arrival.
+      - name: n_pairs
+        description: Consecutive observed tram pairs at measurement points.
+      - name: bunching_rate_pct
+        description: Share of pairs with actual headway < bunching_ratio x scheduled (%).
+      - name: headway_cv
+        description: Coefficient of variation of actual headways.
+      - name: mean_scheduled_headway_s
+        description: Mean scheduled headway (s).
+      - name: mean_actual_headway_s
+        description: Mean actual headway (s).
+      - name: excess_wait_s
+        description: Excess average wait vs timetable for a randomly arriving passenger (s).
+      - name: is_sample_sufficient
+        description: n_pairs >= min_sample_events.
+
+  - name: agg_coverage_daily
+    description: The coverage report - what was captured and missed, per mode per service date, plus join quality.
+    columns:
+      - name: service_date
+        description: *service_date
+        data_tests: [not_null]
+      - name: date_key
+        description: *date_key
+      - name: mode
+        description: *mode
+      - name: n_scheduled_events
+        description: All scheduled stop events on the date (from the timetable in force).
+      - name: n_in_session_events
+        description: Scheduled during a collector session.
+      - name: n_in_scope_events
+        description: *n_in_scope
+      - name: n_observed_in_scope
+        description: Observed events within scope.
+      - name: n_observed_events
+        description: All observed events (incl. late-running trips observed after their session).
+      - name: n_collection_gap_events
+        description: Scheduled during a poll gap inside a session (count against coverage).
+      - name: n_unobserved_events
+        description: Collected but not observable (stale prediction, trip absent, etc.).
+      - name: n_cancelled_events
+        description: Events on cancelled trips.
+      - name: n_skipped_events
+        description: Events flagged SKIPPED.
+      - name: n_method_last_prediction
+        description: Events observed via trip-update last prediction.
+      - name: n_method_vehicle_position
+        description: Events observed via vehicle positions.
+      - name: n_delay_outliers
+        description: Events quarantined as outliers.
+      - name: coverage_pct
+        description: *coverage_pct
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 100}
+      - name: n_rt_trips
+        description: Realtime trips seen (excl. ADDED).
+      - name: n_rt_trips_matched
+        description: Realtime trips matched to a scheduled trip.
+      - name: n_rt_trips_added
+        description: ADDED trips (not in the timetable by design).
+      - name: trip_match_rate
+        description: n_rt_trips_matched / n_rt_trips (join quality; must stay >= min_match_rate).
+      - name: n_runs
+        description: Collector runs that started on this local date.
+      - name: collector_hours
+        description: Hours of collector runtime.
+      - name: polls_attempted
+        description: Trip-update polls attempted.
+      - name: polls_succeeded
+        description: Trip-update polls succeeded.
+      - name: polls_duplicate
+        description: Polls that returned an unchanged (cached) snapshot.
+      - name: poll_success_pct
+        description: polls_succeeded / polls_attempted x 100.
+
+  - name: agg_inference_agreement
+    description: Agreement between the trip-update and vehicle-position arrival methods (ADR-004 self-validation).
+    columns:
+      - name: mode
+        description: *mode
+        data_tests: [unique]
+      - name: n_both_methods
+        description: Events with both methods available.
+      - name: median_abs_diff_s
+        description: Median absolute difference (s).
+      - name: p90_abs_diff_s
+        description: 90th percentile absolute difference (s).
+      - name: median_signed_diff_s
+        description: Median of VP minus TU (s; positive = VP later).
+      - name: pct_within_60s
+        description: Share within 60 s (%).
+      - name: pct_within_120s
+        description: Share within 120 s (%).
+      - name: pct_otp_verdict_flips
+        description: Share of events whose on-time verdict would change under the other method (%).
+
+  - name: agg_disruption_otp
+    description: Proxy OTP inside vs outside active service-alert windows, for routes that had alerts.
+    columns:
+      - name: mode
+        description: *mode
+      - name: route_key
+        description: *route_key
+      - name: during_disruption
+        description: Scheduled time fell inside an active alert naming the route.
+      - name: n_observed
+        description: *n_observed
+      - name: otp_pct
+        description: *otp_pct
+      - name: p90_delay_s
+        description: *p90
+      - name: is_sample_sufficient
+        description: *sample_ok

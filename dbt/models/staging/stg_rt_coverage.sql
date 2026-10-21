@@ -1,0 +1,20 @@
+select
+    run_id,
+    collector,
+    mode,
+    feed,
+    run_start_utc,
+    run_end_utc,
+    {{ local_ts('run_start_utc') }}::date as run_local_date,
+    polls_attempted,
+    polls_succeeded,
+    polls_failed,
+    polls_duplicate,
+    auth_method,
+    bytes_downloaded,
+    entities_total,
+    rows_written,
+    earliest_feed_ts,
+    latest_feed_ts,
+    last_error
+from {{ source('bronze', 'rt_coverage') }}

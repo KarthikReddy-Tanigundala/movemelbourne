@@ -35,6 +35,7 @@ import requests
 
 from movemelbourne import config
 from movemelbourne.collect.upload import upload_run_folder
+from movemelbourne.utils.lake import publish_to_lake
 from movemelbourne.utils.logging import setup_logging
 
 logger = logging.getLogger("movemelbourne.static")
@@ -107,14 +108,20 @@ def calendar_bounds(inner: zipfile.ZipFile) -> tuple[str | None, str | None]:
         dates += cal.column("start_date").to_pylist() + cal.column("end_date").to_pylist()
     if "calendar_dates.txt" in inner.namelist():
         cd = read_txt_as_strings(inner.read("calendar_dates.txt"))
-        dates += [d for d, e in zip(cd.column("date").to_pylist(),
-                                    cd.column("exception_type").to_pylist(), strict=True) if e == "1"]
+        dates += [
+            d
+            for d, e in zip(
+                cd.column("date").to_pylist(), cd.column("exception_type").to_pylist(), strict=True
+            )
+            if e == "1"
+        ]
     dates = [d for d in dates if d]
     return (min(dates), max(dates)) if dates else (None, None)
 
 
-def convert(zip_path: Path, out_root: Path, feed_version: str, branches: dict[str, str],
-            meta: dict) -> Path:
+def convert(
+    zip_path: Path, out_root: Path, feed_version: str, branches: dict[str, str], meta: dict
+) -> Path:
     """Extract each in-scope branch to Parquet tagged with feed_version and mode_branch."""
     version_dir = out_root / feed_version
     if version_dir.exists():
@@ -136,13 +143,25 @@ def convert(zip_path: Path, out_root: Path, feed_version: str, branches: dict[st
                 pq.write_table(tbl, dest, compression="zstd")
                 counts[table] = tbl.num_rows
             start, end = calendar_bounds(inner)
-            version_rows.append({**meta, "feed_version": feed_version, "mode_branch": branch,
-                                 "mode": mode, "calendar_start": start, "calendar_end": end,
-                                 "n_trips": counts.get("trips", 0),
-                                 "n_stop_times": counts.get("stop_times", 0),
-                                 "n_stops": counts.get("stops", 0)})
-            logger.info("branch %s (%s): %s", branch, mode,
-                        ", ".join(f"{k}={v:,}" for k, v in counts.items()))
+            version_rows.append(
+                {
+                    **meta,
+                    "feed_version": feed_version,
+                    "mode_branch": branch,
+                    "mode": mode,
+                    "calendar_start": start,
+                    "calendar_end": end,
+                    "n_trips": counts.get("trips", 0),
+                    "n_stop_times": counts.get("stop_times", 0),
+                    "n_stops": counts.get("stops", 0),
+                }
+            )
+            logger.info(
+                "branch %s (%s): %s",
+                branch,
+                mode,
+                ", ".join(f"{k}={v:,}" for k, v in counts.items()),
+            )
     vpath = version_dir / "raw" / "schedule_versions" / f"feed_version={feed_version}.parquet"
     vpath.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(pa.Table.from_pylist(version_rows), vpath)
@@ -179,19 +198,28 @@ def main(argv: list[str] | None = None) -> int:
         from huggingface_hub import HfApi
 
         existing = HfApi(token=token).list_repo_files(repo, repo_type="dataset")
-        if any(f.startswith("raw/schedule_versions/") and f"_{sha[:8]}.parquet" in f
-               for f in existing):
+        if any(
+            f.startswith("raw/schedule_versions/") and f"_{sha[:8]}.parquet" in f for f in existing
+        ):
             logger.info("release sha %s already published; skipping", sha[:8])
             return 0
 
     branches = dict(study["static_schedule"]["mode_branches"])
     if args.include_stretch:
         branches.update(study["static_schedule"]["stretch_mode_branches"])
-    meta = {"sha256": sha, "zip_bytes": size, "source_url": url,
-            "downloaded_at_utc": downloaded_at.isoformat(timespec="seconds"),
-            "valid_from": f"{downloaded_at:%Y-%m-%d}"}
+    meta = {
+        "sha256": sha,
+        "zip_bytes": size,
+        "source_url": url,
+        "downloaded_at_utc": downloaded_at.isoformat(timespec="seconds"),
+        "valid_from": f"{downloaded_at:%Y-%m-%d}",
+    }
     version_dir = convert(zip_path, config.DATA_DIR / "static", feed_version, branches, meta)
-    logger.info("converted to %s", version_dir)
+    logger.info(
+        "converted to %s; %d files published to the local lake",
+        version_dir,
+        publish_to_lake(version_dir),
+    )
     if upload:
         upload_run_folder(version_dir, repo, token, f"static {feed_version}")
     return 0

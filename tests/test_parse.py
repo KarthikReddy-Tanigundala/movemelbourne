@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import FEED_TS
 
+from conftest import FEED_TS
 from movemelbourne.collect.parse import SCHEMAS, parse_feed, to_table
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -55,8 +55,11 @@ def test_alerts_explode_entities_by_periods(service_alerts_pb):
 
 @pytest.mark.parametrize("feed", list(SCHEMAS))
 def test_to_table_matches_fixed_schema(feed, request):
-    fixture = {"trip-updates": "trip_updates_pb", "vehicle-positions": "vehicle_positions_pb",
-               "service-alerts": "service_alerts_pb"}[feed]
+    fixture = {
+        "trip-updates": "trip_updates_pb",
+        "vehicle-positions": "vehicle_positions_pb",
+        "service-alerts": "service_alerts_pb",
+    }[feed]
     rows, *_ = parse_feed(feed, request.getfixturevalue(fixture), "tram", FEED_TS)
     table = to_table(feed, rows)
     assert table.schema.equals(SCHEMAS[feed])

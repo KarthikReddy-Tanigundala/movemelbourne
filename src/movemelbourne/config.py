@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,7 @@ WAREHOUSE_PATH = Path(os.getenv("MOVEMELBOURNE_DUCKDB", DATA_DIR / "movemelbourn
 load_dotenv(REPO_ROOT / ".env", override=False)
 
 
-@lru_cache(maxsize=None)
+@cache
 def load_yaml(name: str) -> dict[str, Any]:
     """Load ``config/<name>.yaml`` once per process."""
     with open(CONFIG_DIR / f"{name}.yaml", encoding="utf-8") as fh:

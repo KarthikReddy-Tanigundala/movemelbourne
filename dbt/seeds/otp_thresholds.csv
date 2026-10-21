@@ -1,0 +1,3 @@
+mode,early_tolerance_s,late_threshold_s,target_punctuality_pct,target_reliability_pct,source,verified_on
+metro,,299,92.0,98.5,"Metro: on time if no later than 4m59s after schedule (early not penalised); targets from vic.gov.au monthly performance",2026-10-21
+tram,59,299,82.0,98.5,"Yarra Trams Customer Charter (Oct 2025) and vic.gov.au: no more than 59s early or 4m59s late",2026-10-21

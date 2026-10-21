@@ -1,7 +1,7 @@
 name: collect-realtime
 on:
   schedule:
-    - cron: "*/30 * * * *"      # UTC; runs may start late, the 27-min loop absorbs this
+    - cron: "*/30 * * * *"      # UTC; a late start just queues behind the running loop (no overlap)
   workflow_dispatch:
 concurrency:
   group: collect-realtime
@@ -9,12 +9,12 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 32
+    timeout-minutes: 36
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --frozen --no-default-groups
-      - run: uv run python -m movemelbourne.collect.run_collection --max-runtime-min 27 --out-dir runs
+      - run: uv run python -m movemelbourne.collect.run_collection --max-runtime-min 29 --out-dir runs --no-lake
         env:
           TVOD_API_KEY: ${{ secrets.TVOD_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}

@@ -1,0 +1,26 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths-ignore: ["docs/**", "**.md"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # gitleaks scans history
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen
+      - name: Lint
+        run: uv run ruff check src scripts tests && uv run ruff format --check src scripts tests
+      - name: Unit tests (fixtures only, no API key)
+        run: uv run pytest
+      - name: dbt build on the committed sample (no API key, no network)
+        run: uv run python scripts/run_pipeline.py --sample
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

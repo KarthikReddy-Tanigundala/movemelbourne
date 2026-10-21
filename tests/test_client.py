@@ -32,8 +32,13 @@ class FakeSession:
         self.calls.append({"url": url, "headers": headers or {}, "params": params or {}})
         if self.statuses:
             return FakeResponse(self.statuses.pop(0), b"payload")
-        sent = ("ocp_header" if "Ocp-Apim-Subscription-Key" in (headers or {}) else
-                "keyid_header" if "KeyID" in (headers or {}) else "query_param")
+        sent = (
+            "ocp_header"
+            if "Ocp-Apim-Subscription-Key" in (headers or {})
+            else "keyid_header"
+            if "KeyID" in (headers or {})
+            else "query_param"
+        )
         return FakeResponse(200 if sent == self.accept else 401, b"payload")
 
 

@@ -1,0 +1,62 @@
+version: 2
+
+seeds:
+  - name: modes
+    description: Mode code, GTFS Schedule outer-zip folder (mode_branch) and display label.
+    columns:
+      - name: mode
+        description: Mode code used in realtime endpoint paths (metro, tram, vline, bus).
+        data_tests: [unique, not_null]
+      - name: mode_branch
+        description: Numbered folder of the DTP GTFS Schedule zip for this mode.
+        data_tests: [unique, not_null]
+      - name: mode_label
+        description: Display name.
+      - name: in_core_scope
+        description: True for the core study modes (ADR-001).
+
+  - name: otp_thresholds
+    description: >
+      Punctuality definitions per mode. A stop event is on time when
+      -early_tolerance_s <= delay_seconds <= late_threshold_s; a blank early tolerance means
+      early running is not penalised (the official metro measure is arrival-lateness only).
+    columns:
+      - name: mode
+        data_tests: [unique, not_null]
+      - name: early_tolerance_s
+        description: Seconds early still counted on time (null = unbounded).
+      - name: late_threshold_s
+        description: Seconds late still counted on time (299 = 4 min 59 s).
+      - name: target_punctuality_pct
+        description: Operator contract punctuality target, percent.
+      - name: target_reliability_pct
+        description: Operator contract reliability (service delivery) target, percent.
+      - name: source
+        description: Where the definition comes from.
+      - name: verified_on
+        description: Date the definition was checked against the official source.
+
+  - name: time_bands
+    description: Hour of day (local, scheduled time) to time band.
+    columns:
+      - name: hour_of_day
+        data_tests: [unique, not_null]
+      - name: time_band
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["AM peak", "Inter-peak", "PM peak", "Evening", "Night"]
+      - name: is_peak
+        description: True for AM and PM peak.
+      - name: sort_order
+        description: Display order of the band.
+
+  - name: vic_public_holidays
+    description: Victorian public holidays from the `holidays` package (subdiv VIC).
+    columns:
+      - name: holiday_date
+        data_tests: [unique, not_null]
+      - name: holiday_name
+        description: Holiday name.
+      - name: source
+        description: Provenance of the row.

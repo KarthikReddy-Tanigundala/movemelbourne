@@ -1,0 +1,5 @@
+mode,mode_branch,mode_label,in_core_scope
+metro,2,Metro Train,true
+tram,3,Yarra Trams,true
+vline,1,V/Line,false
+bus,4,Metro & Regional Bus,false

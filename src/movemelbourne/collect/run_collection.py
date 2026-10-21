@@ -1,8 +1,8 @@
-"""Collector entrypoint: poll every enabled feed for ~27 minutes, then write and publish.
+"""Collector entrypoint: poll every enabled feed for ~29 minutes, then write and publish.
 
 Usage::
 
-    uv run python -m movemelbourne.collect.run_collection --max-runtime-min 27
+    uv run python -m movemelbourne.collect.run_collection --max-runtime-min 29
     uv run python -m movemelbourne.collect.run_collection --max-runtime-min 3 --no-upload
 
 Design (ADR-002):
@@ -36,6 +36,7 @@ from movemelbourne import config
 from movemelbourne.collect.client import AuthError, FeedClient
 from movemelbourne.collect.parse import parse_feed, to_table
 from movemelbourne.collect.upload import upload_run_folder
+from movemelbourne.utils.lake import publish_to_lake
 from movemelbourne.utils.logging import redact, setup_logging
 from movemelbourne.utils.timeutil import epoch_to_local
 
@@ -105,8 +106,15 @@ def collector_name() -> str:
 class Collector:
     """Polls feeds on a fixed cadence until the deadline or a stop signal."""
 
-    def __init__(self, client: FeedClient, modes: dict[str, list[str]], *, poll_interval_s: float,
-                 max_runtime_s: float, keep_raw_sample: bool = True) -> None:
+    def __init__(
+        self,
+        client: FeedClient,
+        modes: dict[str, list[str]],
+        *,
+        poll_interval_s: float,
+        max_runtime_s: float,
+        keep_raw_sample: bool = True,
+    ) -> None:
         self.client = client
         self.poll_interval_s = poll_interval_s
         self.max_runtime_s = max_runtime_s
@@ -151,8 +159,14 @@ class Collector:
         if feed_ts is not None:
             stats.earliest_feed_ts = min(filter(None, (stats.earliest_feed_ts, feed_ts)))
             stats.latest_feed_ts = feed_ts
-        logger.debug("%s/%s ok: %d entities, %d rows, %d bytes", stats.mode, stats.feed,
-                     n_entities, len(rows), result.n_bytes)
+        logger.debug(
+            "%s/%s ok: %d entities, %d rows, %d bytes",
+            stats.mode,
+            stats.feed,
+            n_entities,
+            len(rows),
+            result.n_bytes,
+        )
 
     def run(self) -> None:
         """Poll every feed every ``poll_interval_s`` until the deadline."""
@@ -179,7 +193,9 @@ class Collector:
                 time.sleep(min(sleep_for, max(deadline - time.monotonic(), 0), 5))
 
 
-def write_run(collector: Collector, out_root: Path, run_id: str, run_start: int, run_end: int) -> Path:
+def write_run(
+    collector: Collector, out_root: Path, run_id: str, run_start: int, run_end: int
+) -> Path:
     """Write per-feed Parquet, raw samples and the coverage row into ``out_root/<run_id>``."""
     run_dir = out_root / run_id
     dt = epoch_to_local(run_start).strftime("%Y-%m-%d")
@@ -187,23 +203,44 @@ def write_run(collector: Collector, out_root: Path, run_id: str, run_start: int,
     for stats in collector.stats.values():
         if stats.rows:
             table = to_table(stats.feed, stats.rows)
-            path = (run_dir / "raw" / "realtime" / FEED_DIRS[stats.feed] / f"mode={stats.mode}"
-                    / f"dt={dt}" / f"run_{run_id}.parquet")
+            path = (
+                run_dir
+                / "raw"
+                / "realtime"
+                / FEED_DIRS[stats.feed]
+                / f"mode={stats.mode}"
+                / f"dt={dt}"
+                / f"run_{run_id}.parquet"
+            )
             path.parent.mkdir(parents=True, exist_ok=True)
             pq.write_table(table, path, compression="zstd")
             stats.rows_written = table.num_rows
         if stats.raw_sample is not None:
-            sample = (run_dir / "raw" / "pb_samples" / f"mode={stats.mode}" / f"dt={dt}"
-                      / f"{FEED_DIRS[stats.feed]}_{run_id}.pb.gz")
+            sample = (
+                run_dir
+                / "raw"
+                / "pb_samples"
+                / f"mode={stats.mode}"
+                / f"dt={dt}"
+                / f"{FEED_DIRS[stats.feed]}_{run_id}.pb.gz"
+            )
             sample.parent.mkdir(parents=True, exist_ok=True)
             sample.write_bytes(gzip.compress(stats.raw_sample))
         row = {k: v for k, v in asdict(stats).items() if k not in ("rows", "raw_sample")}
-        coverage_rows.append({"run_id": run_id, "collector": collector_name(),
-                              "run_start_utc": run_start, "run_end_utc": run_end, **row})
+        coverage_rows.append(
+            {
+                "run_id": run_id,
+                "collector": collector_name(),
+                "run_start_utc": run_start,
+                "run_end_utc": run_end,
+                **row,
+            }
+        )
     cov_path = run_dir / "raw" / "coverage" / f"dt={dt}" / f"run_{run_id}.parquet"
     cov_path.parent.mkdir(parents=True, exist_ok=True)
-    pq.write_table(pa.Table.from_pylist(coverage_rows, schema=COVERAGE_SCHEMA), cov_path,
-                   compression="zstd")
+    pq.write_table(
+        pa.Table.from_pylist(coverage_rows, schema=COVERAGE_SCHEMA), cov_path, compression="zstd"
+    )
     return run_dir
 
 
@@ -217,6 +254,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-id", default=default_run_id())
     parser.add_argument("--out-dir", type=Path, default=config.DATA_DIR / "runs")
     parser.add_argument("--no-upload", action="store_true", help="keep output local only")
+    parser.add_argument(
+        "--no-lake",
+        action="store_true",
+        help="don't copy the run into data/lake (used in GitHub Actions)",
+    )
     args = parser.parse_args(argv)
 
     key = config.api_key()
@@ -228,27 +270,46 @@ def main(argv: list[str] | None = None) -> int:
         all_modes = feeds_cfg["modes"]
         modes = {m: all_modes[m]["feeds"] for m in args.modes}
     client = FeedClient(
-        key, feeds_cfg["base_url"], auth_methods=feeds_cfg["auth_methods"],
+        key,
+        feeds_cfg["base_url"],
+        auth_methods=feeds_cfg["auth_methods"],
         max_calls_per_min=feeds_cfg["max_calls_per_min_per_mode"],
-        connect_timeout_s=feeds_cfg["connect_timeout_s"], read_timeout_s=feeds_cfg["read_timeout_s"],
+        connect_timeout_s=feeds_cfg["connect_timeout_s"],
+        read_timeout_s=feeds_cfg["read_timeout_s"],
     )
-    collector = Collector(client, modes, poll_interval_s=args.poll_interval_s,
-                          max_runtime_s=args.max_runtime_min * 60,
-                          keep_raw_sample=feeds_cfg.get("keep_raw_pb_sample", True))
+    collector = Collector(
+        client,
+        modes,
+        poll_interval_s=args.poll_interval_s,
+        max_runtime_s=args.max_runtime_min * 60,
+        keep_raw_sample=feeds_cfg.get("keep_raw_pb_sample", True),
+    )
     signal.signal(signal.SIGINT, collector.request_stop)
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, collector.request_stop)
 
-    logger.info("run %s starting: modes=%s runtime=%.0f min", args.run_id, modes, args.max_runtime_min)
+    logger.info(
+        "run %s starting: modes=%s runtime=%.0f min", args.run_id, modes, args.max_runtime_min
+    )
     run_start = int(time.time())
     collector.run()
     run_end = int(time.time())
     run_dir = write_run(collector, args.out_dir, args.run_id, run_start, run_end)
+    if not args.no_lake:
+        logger.info("published %d files to the local lake", publish_to_lake(run_dir))
 
     for s in collector.stats.values():
-        logger.info("%-6s %-17s polls %d ok %d fail %d dup %d rows %d auth=%s", s.mode, s.feed,
-                    s.polls_attempted, s.polls_succeeded, s.polls_failed, s.polls_duplicate,
-                    s.rows_written, s.auth_method)
+        logger.info(
+            "%-6s %-17s polls %d ok %d fail %d dup %d rows %d auth=%s",
+            s.mode,
+            s.feed,
+            s.polls_attempted,
+            s.polls_succeeded,
+            s.polls_failed,
+            s.polls_duplicate,
+            s.rows_written,
+            s.auth_method,
+        )
 
     exit_code = 0
     repo, token = config.hf_dataset_repo(), config.hf_token()
