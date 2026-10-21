@@ -22,6 +22,7 @@ import argparse
 import hashlib
 import io
 import logging
+import os
 import shutil
 import sys
 import zipfile
@@ -168,6 +169,14 @@ def convert(
     return version_dir
 
 
+def write_github_output(**values: str) -> None:
+    """Expose step outputs to later GitHub Actions steps (no-op locally)."""
+    path = os.getenv("GITHUB_OUTPUT")
+    if path:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.writelines(f"{k}={v}\n" for k, v in values.items())
+
+
 def main(argv: list[str] | None = None) -> int:
     setup_logging()
     study = config.study_config()
@@ -193,6 +202,9 @@ def main(argv: list[str] | None = None) -> int:
 
     repo, token = config.hf_dataset_repo(), config.hf_token()
     upload = not args.no_upload and repo and token
+    if os.getenv("GITHUB_ACTIONS") == "true" and not args.no_upload and not upload:
+        logger.error("HF_TOKEN / HF_DATASET_REPO missing in Actions; refusing a silent no-op")
+        return 1
     # Same bytes as a version already published -> nothing to do (weekly job is idempotent).
     if upload and not args.force:
         from huggingface_hub import HfApi
@@ -202,6 +214,7 @@ def main(argv: list[str] | None = None) -> int:
             f.startswith("raw/schedule_versions/") and f"_{sha[:8]}.parquet" in f for f in existing
         ):
             logger.info("release sha %s already published; skipping", sha[:8])
+            write_github_output(feed_version=feed_version, published="false")
             return 0
 
     branches = dict(study["static_schedule"]["mode_branches"])
@@ -222,6 +235,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if upload:
         upload_run_folder(version_dir, repo, token, f"static {feed_version}")
+    write_github_output(feed_version=feed_version, published="true" if upload else "false")
     return 0
 
 

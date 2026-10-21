@@ -1,0 +1,42 @@
+name: dbt-docs
+# Build the warehouse on the committed sample and publish dbt docs (lineage, column docs, tests)
+# to GitHub Pages. The sample keeps this keyless and fast; model docs and the DAG are identical
+# to the real build. Enable Pages once: Settings -> Pages -> Source: GitHub Actions.
+on:
+  push:
+    branches: [main]
+    paths: ["dbt/**", "scripts/run_pipeline.py", "src/movemelbourne/load/**", ".github/workflows/dbt_docs.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen
+      - name: Build warehouse on the sample and generate docs
+        run: uv run python scripts/run_pipeline.py --sample --docs
+      - name: Assemble the site
+        run: |
+          mkdir -p site
+          cp dbt/target/index.html dbt/target/manifest.json dbt/target/catalog.json site/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

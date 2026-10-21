@@ -25,6 +25,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--repo", default=config.hf_dataset_repo())
     parser.add_argument("--since", help="only realtime/coverage partitions with dt >= YYYY-MM-DD")
+    parser.add_argument(
+        "--coverage-only",
+        action="store_true",
+        help="only the coverage log (for the daily coverage check)",
+    )
     args = parser.parse_args(argv)
     if not args.repo:
         logger.error("no dataset repo: set HF_DATASET_REPO or pass --repo")
@@ -32,18 +37,17 @@ def main(argv: list[str] | None = None) -> int:
 
     from huggingface_hub import HfApi, snapshot_download
 
-    allow = ["raw/schedule/**", "raw/schedule_versions/**"]
+    allow = [] if args.coverage_only else ["raw/schedule/**", "raw/schedule_versions/**"]
+    prefixes = ("raw/coverage/",) if args.coverage_only else ("raw/realtime/", "raw/coverage/")
     if args.since:
         files = HfApi(token=config.hf_token()).list_repo_files(args.repo, repo_type="dataset")
         allow += [
             f
             for f in files
-            if f.startswith(("raw/realtime/", "raw/coverage/"))
-            and "dt=" in f
-            and f.split("dt=")[1][:10] >= args.since
+            if f.startswith(prefixes) and "dt=" in f and f.split("dt=")[1][:10] >= args.since
         ]
     else:
-        allow += ["raw/realtime/**", "raw/coverage/**"]
+        allow += [f"{p}**" for p in prefixes]
     path = snapshot_download(
         args.repo,
         repo_type="dataset",

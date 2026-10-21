@@ -1,0 +1,10 @@
+[theme]
+# Light/dark follows the viewer's system setting; only the accent is fixed.
+primaryColor = "#2a78d6"
+font = "sans serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

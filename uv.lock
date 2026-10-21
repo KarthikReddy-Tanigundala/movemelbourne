@@ -801,6 +801,7 @@ analysis = [
     { name = "pyogrio" },
     { name = "pyproj" },
     { name = "shapely" },
+    { name = "tabulate" },
 ]
 app = [
     { name = "plotly" },
@@ -840,6 +841,7 @@ analysis = [
     { name = "pyogrio", specifier = ">=0.9" },
     { name = "pyproj", specifier = ">=3.6" },
     { name = "shapely", specifier = ">=2.0" },
+    { name = "tabulate", specifier = ">=0.9" },
 ]
 app = [
     { name = "plotly", specifier = ">=5.24" },

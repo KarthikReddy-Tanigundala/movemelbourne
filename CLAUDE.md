@@ -780,3 +780,28 @@ Section 8 with real metrics, and bump the KB minor version.
 
 *CLAUDE.md v1.0 — MoveMelbourne · Generated for Karthik Reddy Tanigundala — RMIT Master of Data
 Science 2026 · Project 5 of 5 (data-engineering showcase) · Data facts verified 21 Oct 2026*
+
+---
+
+## 21. ERRATA & BUILD DECISIONS (supersede earlier sections where they conflict)
+
+Recorded during the build (2026-10-21). Each is backed by an ADR or a test.
+
+| # | Spec said | Build does | Why / evidence |
+|---|---|---|---|
+| 1 | `tram`/`bus`/`vline` paths: VERIFY | Verified from each mode's OpenAPI JSON | `docs/sources.md` |
+| 2 | Auth: `Ocp-Apim…` / `KeyID` / query | Same negotiation; V/Line spec also says `KeyId` | ADR-008 |
+| 3 | Tram definition: VERIFY | −59 s / +4:59, target 82% (charter Oct 2025, vic.gov.au) | `otp_thresholds.csv` |
+| 4 | Official monthly figures | Daily operational reports also exist → day-level validation | ADR-007, `docs/validation.md` |
+| 5 | 27-minute poll loop | **29 minutes**; a 27-min loop leaves a ≥ 3-min blind spot every 30 min (~10% of time) | ADR-002 |
+| 6 | Bronze over `hf://` or synced files | One local **lake** mirroring the HF layout; local runs, static snapshots and HF sync share paths (file-level dedupe) | ADR-003 |
+| 7 | Pre-compute `scheduled_arrival_epoch` per stop in Python | Python computes only `ref_epoch` per service date (DST-correct); dbt adds GTFS seconds (keeps 8M-row joins in DuckDB) | ADR-005, `test_timeutil.py` |
+| 8 | DST reference "midnight" assumption | Noon-minus-12h = 23:00 previous evening on DST-start day, 01:00 on DST-end day | `test_timeutil.py` |
+| 9 | packages.yml with dbt-utils, dbt-expectations | **No packages**; local `accepted_range` test; offline CI | ADR-006 |
+| 10 | Last prediction before the stop disappears | Latest snapshot with \|prediction − snapshot\| ≤ 120 s + evidence of passing; works for drop-out and keep-stop feeds | ADR-004 |
+| 11 | Coverage = observed ÷ scheduled | Classified per event: collected / collection_gap / outside_collection, using **collection sessions** (runs < 1 h apart); gaps inside a session count against coverage | METHODOLOGY §5 |
+| 12 | Metro replacement buses | Excluded from scheduled events (`route_id` suffix `-R:` / "Replacement Bus"); not in the RT feed | `stg_gtfs_routes` |
+| 13 | Bootstrap CI | Trip-**clustered** bootstrap (stops on a trip are correlated); Wilson bound kept as SQL guard | `analysis/bootstrap.py`, tests |
+| 14 | Sample for CI | Real timetable slice + **synthetic** realtime (clearly labelled), exercising every edge case | `tests/sample/README.md` |
+| 15 | Static GTFS 255.45 MB | 267,860,262 bytes (16 Oct 2026 release); nested `N/google_transit.zip` confirmed | `docs/schedule_validation.md` |
+| 16 | `scripts/run_sample.py` builds + opens dashboard | Implemented; `run_pipeline.py` is the general runner (passes `study.yaml` as dbt vars) | README Quickstart |

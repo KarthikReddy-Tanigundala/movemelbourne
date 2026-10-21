@@ -1,0 +1,40 @@
+name: coverage-check
+# Daily: read the collector's coverage log from the HF dataset and open (or update) an issue if
+# collection stalled, a gap exceeded the alert threshold, or poll success dropped (CLAUDE.md §6.4).
+on:
+  schedule:
+    - cron: "17 22 * * *"   # 09:17 Melbourne (AEDT)
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen --no-default-groups --group analysis
+      - name: Sync the last two days of coverage rows
+        run: uv run python -m movemelbourne.load.sync_from_hf --coverage-only --since "$(date -u -d '2 days ago' +%F)"
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_DATASET_REPO: Karry001/movemelbourne-gtfsr
+      - name: Check collector health
+        id: health
+        run: uv run python scripts/collector_status.py --hours 24 --report health.md
+      - name: Open or update an issue when unhealthy
+        if: failure() && steps.health.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Collector unhealthy ($(date -u +%F))"
+          existing=$(gh issue list --label collector-health --state open --json number --jq '.[0].number')
+          gh label create collector-health --color B60205 --force >/dev/null
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file health.md
+          else
+            gh issue create --title "$title" --label collector-health --body-file health.md
+          fi
+          exit 1

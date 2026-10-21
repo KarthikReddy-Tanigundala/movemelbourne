@@ -38,6 +38,7 @@ analysis = [
     "pyogrio>=0.9",
     "holidays>=0.58",
     "matplotlib>=3.9",
+    "tabulate>=0.9",  # DataFrame.to_markdown in reports
 ]
 app = [
     "streamlit>=1.39",

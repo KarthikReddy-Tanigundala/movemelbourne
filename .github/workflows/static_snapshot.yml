@@ -1,0 +1,38 @@
+name: static-snapshot
+# Weekly versioned copy of the GTFS Schedule release (ADR-005). Idempotent: an unchanged release
+# (same SHA-256) is skipped. A new version is also logged in docs/feed_versions.md, which keeps the
+# repository active so GitHub never disables the collector schedule (60-day inactivity rule).
+on:
+  schedule:
+    - cron: "17 3 * * 1"   # Monday 03:17 UTC
+  workflow_dispatch:
+concurrency:
+  group: static-snapshot
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen --no-default-groups
+      - name: Download, version and publish the timetable
+        id: snap
+        run: uv run python -m movemelbourne.ingest.static_snapshot
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_DATASET_REPO: Karry001/movemelbourne-gtfsr
+      - name: Record the new version in the repo
+        if: steps.snap.outputs.published == 'true'
+        run: |
+          f=docs/feed_versions.md
+          [ -f "$f" ] || printf '# Timetable versions captured\n\n| feed_version | captured (UTC) |\n|---|---|\n' > "$f"
+          echo "| ${{ steps.snap.outputs.feed_version }} | $(date -u +'%F %H:%M') |" >> "$f"
+          git config user.name "movemelbourne-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$f"
+          git commit -m "Record timetable version ${{ steps.snap.outputs.feed_version }}"
+          git push
