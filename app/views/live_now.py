@@ -4,6 +4,9 @@ Responses are cached for 60 s for all viewers, so traffic to DTP stays at most 1
 per minute no matter how many people open the page (well inside the published rate limit).
 """
 
+import os
+from pathlib import Path
+
 import pandas as pd
 import pydeck as pdk
 import requests
@@ -12,7 +15,9 @@ import streamlit as st
 from lib.common import MODE_COLORS, MODE_LABELS, footer
 
 BASE = "https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1"
-HEADERS = ("Ocp-Apim-Subscription-Key", "KeyID")
+# KeyID is what DTP's gateway accepts (probe, 2026-10-21); the OpenAPI header is a fallback.
+HEADERS = ("KeyID", "Ocp-Apim-Subscription-Key")
+ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 st.title("Live now")
 st.caption(
@@ -22,10 +27,20 @@ st.caption(
 
 
 def api_key() -> str | None:
+    """Streamlit secret (deployed), else environment, else the repo's gitignored .env (local)."""
     try:
-        return st.secrets.get("TVOD_API_KEY")
+        if key := st.secrets.get("TVOD_API_KEY"):
+            return key
     except Exception:  # noqa: BLE001 - no secrets file configured
-        return None
+        pass
+    if key := os.getenv("TVOD_API_KEY"):
+        return key
+    if ENV_FILE.exists():
+        for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+            name, _, value = line.partition("=")
+            if name.strip() == "TVOD_API_KEY" and value.strip():
+                return value.strip()
+    return None
 
 
 @st.cache_data(ttl=60, show_spinner="Fetching live positions…")

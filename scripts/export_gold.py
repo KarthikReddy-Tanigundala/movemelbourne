@@ -176,6 +176,10 @@ def manifest(con: duckdb.DuckDBPyConnection, study: dict, counts: dict[str, int]
     window = con.sql("""
         select min(run_start_utc), max(run_end_utc),
                bool_or(collector = 'synthetic-sample') from staging.stg_rt_coverage""").fetchone()
+    runtime_s = con.sql("""
+        select coalesce(sum(run_end_utc - run_start_utc), 0) from (
+            select distinct run_id, run_start_utc, run_end_utc
+            from staging.stg_rt_coverage where feed = 'trip-updates')""").fetchone()[0]
 
     def fmt(epoch: int | None) -> str | None:
         if not epoch:
@@ -190,6 +194,7 @@ def manifest(con: duckdb.DuckDBPyConnection, study: dict, counts: dict[str, int]
         "is_synthetic_sample": bool(window[2]),
         "collected_from_local": fmt(window[0]),
         "collected_to_local": fmt(window[1]),
+        "collector_hours": round(runtime_s / 3600, 2),
         "study_window": study["study"],
         "feed_versions": [v[0] for v in versions],
         "thresholds": {k: study["quality"][k] for k in ("min_sample_events", "min_match_rate")}
@@ -215,6 +220,12 @@ def main() -> int:
     parser.add_argument("--sample", action="store_true")
     parser.add_argument("--db", type=Path)
     parser.add_argument("--no-powerbi", action="store_true")
+    parser.add_argument(
+        "--app-dir",
+        type=Path,
+        default=APP_DATA,
+        help="where to write the app files (default app/data)",
+    )
     args = parser.parse_args()
     db = args.db or (
         REPO_ROOT / ("tests/sample" if args.sample else "data") / "movemelbourne.duckdb"
@@ -222,16 +233,17 @@ def main() -> int:
     study = study_config()
     con = duckdb.connect(str(db), read_only=True)
 
-    if APP_DATA.exists():
-        shutil.rmtree(APP_DATA)
+    app_dir = args.app_dir
+    if app_dir.exists():
+        shutil.rmtree(app_dir)
     counts: dict[str, int] = {}
     for name, sql in APP_QUERIES.items():
-        counts[name] = write(con.sql(sql).df(), APP_DATA / f"{name}.parquet")
-    counts["route_summary"] = write(route_summary(con, study), APP_DATA / "route_summary.parquet")
-    counts["route_shapes"] = write(route_shapes(con), APP_DATA / "route_shapes.parquet")
+        counts[name] = write(con.sql(sql).df(), app_dir / f"{name}.parquet")
+    counts["route_summary"] = write(route_summary(con, study), app_dir / "route_summary.parquet")
+    counts["route_shapes"] = write(route_shapes(con), app_dir / "route_shapes.parquet")
     info = manifest(con, study, counts)
-    (APP_DATA / "manifest.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
-    size = sum(p.stat().st_size for p in APP_DATA.iterdir()) / 1e6
+    (app_dir / "manifest.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
+    size = sum(p.stat().st_size for p in app_dir.iterdir()) / 1e6
     logger.info(
         "app data: %d files, %.2f MB, synthetic=%s", len(counts), size, info["is_synthetic_sample"]
     )

@@ -9,13 +9,16 @@ ranked; every page carries the study-window stamp and the DTP attribution footer
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+# app/data holds the committed export; MOVEMELBOURNE_APP_DATA points the app at another export
+# (e.g. a local preview of the study in progress) without touching the committed files.
+DATA_DIR = Path(os.getenv("MOVEMELBOURNE_APP_DATA", Path(__file__).resolve().parents[1] / "data"))
 
 MODE_LABELS = {"metro": "Metro Train", "tram": "Yarra Trams"}
 MODE_COLORS = {"metro": "#2a78d6", "tram": "#eb6834"}  # categorical slots 1-2 (validated)
@@ -62,8 +65,25 @@ def page_header(title: str, bluf: str | None = None) -> None:
             "finishes. No figure on this page describes real Melbourne services.",
             icon="⚠️",
         )
+    elif (hours := collected_hours(m)) < 24 * m.get("study_window", {}).get("minimum_days", 14):
+        st.info(
+            f"**Study in progress: {hours:.1f} collector-hours of real data so far.** Figures "
+            "are early and unrepresentative (time of day, few trips); findings wait for at "
+            f"least {m.get('study_window', {}).get('minimum_days', 14)} days.",
+            icon="⏳",
+        )
     if bluf:
         st.markdown(f"**Bottom line:** {bluf}")
+
+
+def collected_hours(m: dict) -> float:
+    """Hours the collector actually ran (falls back to the first-to-last span)."""
+    if m.get("collector_hours") is not None:
+        return float(m["collector_hours"])
+    start, end = m.get("collected_from_local"), m.get("collected_to_local")
+    if not (start and end):
+        return 0.0
+    return (pd.Timestamp(end) - pd.Timestamp(start)).total_seconds() / 3600
 
 
 def footer() -> None:
