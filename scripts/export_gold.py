@@ -176,6 +176,7 @@ def manifest(con: duckdb.DuckDBPyConnection, study: dict, counts: dict[str, int]
     window = con.sql("""
         select min(run_start_utc), max(run_end_utc),
                bool_or(collector = 'synthetic-sample') from staging.stg_rt_coverage""").fetchone()
+
     def fmt(epoch: int | None) -> str | None:
         if not epoch:
             return None
