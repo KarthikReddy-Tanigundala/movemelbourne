@@ -81,10 +81,11 @@ exports the gold tables and opens the dashboard.
    ```bash
    .\scripts\register_local_collector.ps1
    ```
-   Check health at any time:
+   Check health at any time (works without `uv` on PATH):
    ```bash
-   uv run python scripts/collector_status.py
+   .\.venv\Scripts\python.exe scripts\collector_status.py
    ```
+   Stopping collection (`register_local_collector.ps1 -Unregister`) asks you to type `STOP`.
 4. **Timetable snapshot** (also weekly in Actions):
    ```bash
    uv run python -m movemelbourne.ingest.static_snapshot

@@ -4,14 +4,15 @@
 
         .\scripts\register_local_collector.ps1             # register and start now
         .\scripts\register_local_collector.ps1 -Status     # show last run result
-        .\scripts\register_local_collector.ps1 -Unregister # remove the task
+        .\scripts\register_local_collector.ps1 -Unregister # STOP collection (asks to confirm)
 
     The PC must stay on, awake and logged in for collection to continue. Check gaps with:
-        uv run python scripts/collector_status.py
+        .\.venv\Scripts\python.exe scripts\collector_status.py
 #>
 param(
     [switch]$Unregister,
-    [switch]$Status
+    [switch]$Status,
+    [switch]$Force   # skip the -Unregister confirmation
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,6 +20,17 @@ $TaskName = 'MoveMelbourne-Collector'
 $Repo = Split-Path -Parent $PSScriptRoot
 
 if ($Unregister) {
+    if (-not (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)) {
+        Write-Output "No '$TaskName' task registered; nothing to stop."
+        return
+    }
+    if (-not $Force) {
+        Write-Warning "This STOPS data collection for the study. Every minute stopped is lost for good."
+        if ((Read-Host "Type STOP to confirm") -ne 'STOP') {
+            Write-Output 'Cancelled; collection continues.'
+            return
+        }
+    }
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
     # Stopping the task only ends its PowerShell wrapper; the Python collector (venv launcher +
     # interpreter) keeps running, so stop this repo's collector processes explicitly.
