@@ -37,6 +37,7 @@ from movemelbourne.collect.parse import parse_feed, to_table
 from movemelbourne.collect.upload import upload_run_folder
 from movemelbourne.utils.lake import publish_to_lake
 from movemelbourne.utils.logging import redact, setup_logging
+from movemelbourne.utils.power import keep_awake
 from movemelbourne.utils.timeutil import epoch_to_local
 
 logger = logging.getLogger("movemelbourne.collect")
@@ -292,7 +293,8 @@ def main(argv: list[str] | None = None) -> int:
         "run %s starting: modes=%s runtime=%.0f min", args.run_id, modes, args.max_runtime_min
     )
     run_start = int(time.time())
-    collector.run()
+    with keep_awake():  # a sleeping PC would silently stop the local bridge collector
+        collector.run()
     run_end = int(time.time())
     run_dir = write_run(collector, args.out_dir, args.run_id, run_start, run_end)
     if not args.no_lake:

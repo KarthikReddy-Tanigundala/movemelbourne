@@ -11,8 +11,8 @@ comes with its coverage and sample size.
 
 > **Status (21 Oct 2026):** pipeline, warehouse, tests, dashboard and docs are built. The live
 > feeds have been probed and a first 6-minute live run went end to end (Hugging Face upload,
-> warehouse build, 100% trip match rate). **The 28-day collection study has not started yet**, so
-> there are no findings. The dashboard currently shows a **synthetic sample**, labelled as such.
+> warehouse build, 100% trip match rate). **The 28-day collection study started on 22 Oct 2026** (no findings until it
+> has run at least 14 days). The dashboard currently shows a **synthetic sample**, labelled as such.
 > What the live feeds actually do: [docs/feed_behaviour.md](docs/feed_behaviour.md).
 
 | | Link |
@@ -126,7 +126,7 @@ Full detail: [METHODOLOGY.md](METHODOLOGY.md) · validation plan: [docs/validati
 
 ## Demo status and persistence
 
-- **Study window:** not started (dates go in `config/study.yaml` and here when collection begins).
+- **Study window:** collection started **22 Oct 2026 00:35 AEDT** (local bridge collector); planned 28 days to 19 Nov 2026, covering Melbourne Cup Day (3 Nov). Recorded in `config/study.yaml`.
 - **Dashboard:** shows a fixed study, not live data. A banner and `manifest.json` say which data it
   shows (synthetic sample or study window). The optional "Live now" page shows current vehicle
   positions when an API key is configured.

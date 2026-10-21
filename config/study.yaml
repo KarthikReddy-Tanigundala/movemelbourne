@@ -1,8 +1,10 @@
 # Study definition. Every threshold used by the pipeline lives here or in dbt seeds.
 study:
-  # Filled in when continuous collection starts / stops (ISO 8601 with offset, Melbourne time).
-  window_start: null
+  # ISO 8601 with offset, Melbourne time. Continuous collection started with the local bridge
+  # collector (Windows scheduled task); window_end is set when collection stops.
+  window_start: "2026-10-22T00:35:00+11:00"
   window_end: null
+  planned_end: "2026-11-19T00:35:00+11:00"   # 28 days; includes Melbourne Cup Day (Tue 3 Nov)
   target_days: 28
   minimum_days: 14
   timezone: Australia/Melbourne

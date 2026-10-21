@@ -20,7 +20,12 @@ $Repo = Split-Path -Parent $PSScriptRoot
 
 if ($Unregister) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-    Write-Output "Removed scheduled task '$TaskName'."
+    # Stopping the task only ends its PowerShell wrapper; the Python collector (venv launcher +
+    # interpreter) keeps running, so stop this repo's collector processes explicitly.
+    Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+        Where-Object { $_.CommandLine -like '*movemelbourne.collect.run_collection*' } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -Confirm:$false }
+    Write-Output "Removed scheduled task '$TaskName' and stopped any running collector."
     return
 }
 if ($Status) {
@@ -46,11 +51,20 @@ $Settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
+    -WakeToRun `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 35)
 $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive
 
 Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings `
     -Principal $Principal -Description 'MoveMelbourne GTFS-Realtime collector (29-min poll loop)' -Force | Out-Null
-Start-ScheduledTask -TaskName $TaskName
-Write-Output "Registered '$TaskName': running now, then every 30 min from $($Start.ToString('HH:mm'))."
+# Bridge the time until the first slot with a one-off run that ENDS before the slot. Starting the
+# task itself now would still be running at the slot, and IgnoreNew would skip that whole slot.
+$BridgeMin = [math]::Floor(($Start - (Get-Date)).TotalMinutes) - 1
+if ($BridgeMin -ge 2) {
+    Start-Process powershell.exe -WindowStyle Hidden -WorkingDirectory $Repo -ArgumentList @(
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', "`"$Script`"",
+        '-MaxRuntimeMin', "$BridgeMin")
+    Write-Output "Bridge run started now for $BridgeMin min."
+}
+Write-Output "Registered '$TaskName': every 30 min from $($Start.ToString('HH:mm'))."
 Write-Output "Logs: $Repo\data\logs\  |  Status: .\scripts\register_local_collector.ps1 -Status"
