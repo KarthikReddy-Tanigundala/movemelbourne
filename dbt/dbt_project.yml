@@ -17,6 +17,7 @@ vars:
   max_poll_gap_s: 180           # gap between polls above which an event is a collection gap
   vp_proximity_m: 30
   vp_max_speed_mps: 1.0
+  vp_max_age_s: 180            # drop vehicle positions older than this at poll time
   min_match_rate: 0.95
   delay_min_s: -1800
   delay_max_s: 7200

@@ -18,7 +18,6 @@
 Licence: GTFS Schedule and GTFS-Realtime © Department of Transport and Planning, Creative Commons
 Attribution 4.0.
 
-**Still to verify** (once the API key exists): the day-one probe (`scripts/probe_feeds.py` →
-`docs/probe_results.md`) records the auth method that actually works per mode, field population
-(`arrival.time` vs `arrival.delay`, `start_date`, `stop_sequence`), and whether passed stops drop
-out of the trip-updates feed.
+**Verified live on 21 Oct 2026:** `KeyID` header works (the OpenAPI header returns 401); field
+population and passed-stop behaviour are in [probe_results.md](probe_results.md) and
+[feed_behaviour.md](feed_behaviour.md).

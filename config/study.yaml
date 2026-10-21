@@ -28,9 +28,12 @@ inference:
   primary_method:
     metro: last_prediction
     tram: last_prediction
-  # Vehicle-position fallback: within this distance of the stop with near-zero speed.
+  # Vehicle-position fallback: first fresh position within this distance of one of the trip's
+  # scheduled stops. DTP's VP feeds carry no stop_id/status/speed (probe 2026-10-21), so speed
+  # is only applied if present. Positions older than vp_max_age_s at poll time are dropped.
   vp_proximity_m: 30
   vp_max_speed_mps: 1.0
+  vp_max_age_s: 180
 
 quality:
   min_match_rate: 0.95

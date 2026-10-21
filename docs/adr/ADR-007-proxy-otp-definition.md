@@ -31,6 +31,9 @@ arrivals have to be inferred (ADR-004).
 
 ## Consequences
 
+- **Metro resolution:** the metro feed reports whole minutes (first live test). A reported
+  "+5 min" may be 4:31 or 5:29, so metro proxy OTP is quantised around the 4:59 threshold. This
+  cannot be fixed from the feed; the official comparison will show whether it biases the figure.
 - Expect a gap to the official figure. All-stop measurement weights long routes and the CBD
   heavily, early running is visible at intermediate stops, and the feed cannot see replacement
   buses. `docs/validation.md` explains the gap for the study month.

@@ -24,9 +24,11 @@ Two methods, each labelled on every event (`inference_method`):
    - there is evidence the stop was passed: it dropped out while the trip stayed in the feed,
      the trip was still tracked after the predicted time, or the trip vanished while the
      collector was still polling.
-2. **Vehicle position (secondary).** The first snapshot where the vehicle is `STOPPED_AT` the stop,
-   or within 30 m of it at ≤ 1 m/s. Biased late by up to one poll interval, and misses short
-   dwells.
+2. **Vehicle position (secondary).** The first fresh position (≤ 180 s old at poll time) within
+   30 m of one of the trip's own scheduled stops, or `STOPPED_AT` if a feed ever provides it.
+   DTP's vehicle-position feeds carry no `current_status`, `stop_id` or `speed` (first live test,
+   [feed_behaviour.md](../feed_behaviour.md)), so proximity is the working signal. Biased late by
+   up to one poll interval, and misses short dwells.
 
 Where both exist, `agg_inference_agreement` reports the median and P90 absolute difference and the
 share of events whose on-time verdict would flip under the other method: the method's
@@ -34,6 +36,16 @@ self-validation.
 
 **Unobserved events are never imputed.** They count against coverage, never towards OTP (enforced
 by the dbt test `assert_unobserved_never_has_delay`).
+
+## Evidence from the first live test (21 Oct 2026)
+
+- Metro lists all remaining stops and keeps a passed stop for 1–4 minutes, sometimes revising its
+  time after passing. Tram lists only the stop being served and the next one or two, appearing
+  around the moment the tram arrives. Both fit the rule above ([feed_behaviour.md](../feed_behaviour.md)).
+- Metro times are whole minutes; tram times are to the second.
+- Agreement between methods on 94 tram / 23 metro events: median gap 30.5 s / 27 s; tram on-time
+  verdict flips for 12.8% of events. Last prediction stays primary for both modes until a full
+  week of data is reviewed.
 
 ## Consequences
 

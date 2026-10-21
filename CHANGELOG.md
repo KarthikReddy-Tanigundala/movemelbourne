@@ -18,6 +18,13 @@
 - CI, coverage-check, static-snapshot and dbt-docs workflows; ADR-001…008, METHODOLOGY,
   ARCHITECTURE, generated DATA_DICTIONARY.
 
+### Changed after the first live test (21 Oct 2026)
+- Auth: `KeyID` first (the OpenAPI header returns 401).
+- Vehicle-position method uses proximity to the trip's scheduled stops (the feed has no
+  stop/status/speed fields) and drops positions older than 180 s.
+- Run ids no longer include the hostname.
+- Documented metro minute resolution and observed feed behaviour (`docs/feed_behaviour.md`).
+
 ### Changed (vs the original spec)
 - Collector loop is 29 minutes instead of 27, removing a recurring ≥ 3-minute blind spot at each
   run boundary (ADR-002).

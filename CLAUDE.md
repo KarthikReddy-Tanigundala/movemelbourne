@@ -805,3 +805,7 @@ Recorded during the build (2026-10-21). Each is backed by an ADR or a test.
 | 14 | Sample for CI | Real timetable slice + **synthetic** realtime (clearly labelled), exercising every edge case | `tests/sample/README.md` |
 | 15 | Static GTFS 255.45 MB | 267,860,262 bytes (16 Oct 2026 release); nested `N/google_transit.zip` confirmed | `docs/schedule_validation.md` |
 | 16 | `scripts/run_sample.py` builds + opens dashboard | Implemented; `run_pipeline.py` is the general runner (passes `study.yaml` as dbt vars) | README Quickstart |
+| 17 | Auth negotiation order ocp → KeyID → query | Live: `Ocp-Apim-Subscription-Key` → 401, `KeyID` → 200; order now KeyID first | `docs/probe_results.md` |
+| 18 | VP fallback via `STOPPED_AT` / proximity to `stop_id` | DTP VP feeds have no status, stop_id or speed → proximity to the trip's scheduled stops, positions ≤ 180 s old | `docs/feed_behaviour.md`, ADR-004 |
+| 19 | (not anticipated) | Metro realtime times are whole minutes; quantised OTP documented | ADR-007 |
+| 20 | Run id = run id + hostname | Hostname removed (run ids are public in the dataset) | `run_collection.py` |

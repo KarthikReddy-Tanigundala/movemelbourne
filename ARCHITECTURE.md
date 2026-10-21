@@ -50,7 +50,7 @@ stg_service_calendar ─┘  int_observed_stop_events (last prediction) agg_otp_
 
 ## Tests (zero failures on main)
 
-- **Python (pytest, 44):** auth negotiation and redaction, protobuf parsing (incl. cancelled trips,
+- **Python (pytest, 50, incl. real captured payloads):** auth negotiation and redaction, protobuf parsing (incl. cancelled trips,
   multi-period alerts, schema drift), collector loop and run layout, GTFS > 24:00 and both DST
   changes, calendar exceptions, lake publishing, bronze views, bootstrap CI.
 - **dbt (150 nodes on the sample):** unique/not-null keys on every fact grain; relationships from

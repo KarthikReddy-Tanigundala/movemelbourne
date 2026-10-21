@@ -22,7 +22,6 @@ import gzip
 import logging
 import os
 import signal
-import socket
 import sys
 import time
 from dataclasses import asdict, dataclass, field
@@ -96,7 +95,8 @@ def default_run_id() -> str:
     """GitHub run id + attempt in Actions; a timestamped local id otherwise."""
     if os.getenv("GITHUB_RUN_ID"):
         return f"gha-{os.environ['GITHUB_RUN_ID']}-{os.getenv('GITHUB_RUN_ATTEMPT', '1')}"
-    return f"local-{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{socket.gethostname()[:12]}"
+    # No hostname: run ids are published in the public dataset.
+    return f"local-{datetime.now(UTC):%Y%m%dT%H%M%SZ}"
 
 
 def collector_name() -> str:

@@ -16,7 +16,8 @@ max_runtime_min: 29
 # Auth negotiation order (ADR-008). DTP's documents disagree: the OpenAPI specs say
 # Ocp-Apim-Subscription-Key header or subscription-key query param; the dataset page says
 # header "KeyID"; the V/Line spec says "KeyId". HTTP header names are case-insensitive.
-auth_methods: [ocp_header, keyid_header, query_param]
+# Day-one probe (2026-10-21): ocp_header -> HTTP 401; keyid_header -> 200 for metro and tram.
+auth_methods: [keyid_header, ocp_header, query_param]
 
 # Keep the first raw protobuf per feed per run (gzip) for audit and parser regression tests.
 keep_raw_pb_sample: true

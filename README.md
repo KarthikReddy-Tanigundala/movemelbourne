@@ -9,10 +9,11 @@ in force each day, infers when each train and tram really arrived, and publishes
 performance, delay distributions, reliability, delay hotspots and tram bunching. Every figure
 comes with its coverage and sample size.
 
-> **Status (21 Oct 2026):** pipeline, warehouse, tests, dashboard and docs are built and verified
-> on a committed sample. **The collection study has not started** (it is waiting on the API key),
-> so there are no findings yet. Everything currently on screen is a **synthetic sample** and is
-> labelled as such.
+> **Status (21 Oct 2026):** pipeline, warehouse, tests, dashboard and docs are built. The live
+> feeds have been probed and a first 6-minute live run went end to end (Hugging Face upload,
+> warehouse build, 100% trip match rate). **The 28-day collection study has not started yet**, so
+> there are no findings. The dashboard currently shows a **synthetic sample**, labelled as such.
+> What the live feeds actually do: [docs/feed_behaviour.md](docs/feed_behaviour.md).
 
 | | Link |
 |---|---|
@@ -138,13 +139,14 @@ Full detail: [METHODOLOGY.md](METHODOLOGY.md) · validation plan: [docs/validati
 - The metro trip-updates feed excludes replacement buses, service deviations (skipped stops,
   diversions) and platform information.
 - Arrival times are inferred from 60-second snapshots; method agreement is published.
+- Metro realtime times are whole minutes, which quantises metro delays around the 4:59 threshold.
 - Coverage gaps (API outages, GitHub Actions scheduling jitter, restarts) are measured and count
   against coverage, never towards OTP.
 - Only trips flagged `CANCELED` count as cancelled; "no data" trips are reported separately.
 
 ## Testing and quality
 
-- `uv run pytest`: 44 unit tests (auth negotiation and redaction, protobuf parsing, collector
+- `uv run pytest`: 50 tests, including parsing of real captured payloads (auth negotiation and redaction, protobuf parsing, collector
   loop, GTFS time and DST rules, calendar, lake, bronze, bootstrap)
 - `uv run python scripts/run_pipeline.py --sample`: 150 dbt nodes, including match-rate,
   reconciliation, monotonic-schedule and "unobserved never has a delay" tests and a unit test of

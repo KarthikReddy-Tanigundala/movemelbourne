@@ -35,6 +35,7 @@ def dbt_vars(study: dict) -> dict:
         "max_poll_gap_s": inf["max_poll_gap_s"],
         "vp_proximity_m": inf["vp_proximity_m"],
         "vp_max_speed_mps": inf["vp_max_speed_mps"],
+        "vp_max_age_s": inf["vp_max_age_s"],
         "inference_primary": inf["primary_method"],
         "min_match_rate": q["min_match_rate"],
         "delay_min_s": q["delay_min_s"],

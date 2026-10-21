@@ -28,8 +28,9 @@ how (`fact_stop_event.inference_method`):
    **180 s**, and there is evidence the stop was passed (it dropped out of the feed while the trip
    continued, the trip was still tracked after the predicted time, or the trip vanished while we
    were still polling).
-2. **Vehicle position** (fallback). The first snapshot showing the vehicle `STOPPED_AT` the stop,
-   or within 30 m of it and nearly stationary.
+2. **Vehicle position** (fallback). The first fresh position (≤ 180 s old) within 30 m of one of
+   the trip's scheduled stops. DTP's vehicle-position feeds have no stop or status fields, so
+   proximity is the signal ([docs/feed_behaviour.md](docs/feed_behaviour.md)).
 
 Where both exist, their agreement is reported (`agg_inference_agreement`) as a self-check.
 
@@ -114,6 +115,8 @@ published figures; if they are not yet available, the document says so.
 - **Feed exclusions.** The metro trip-updates feed omits replacement buses, service deviations
   (skipped stops, diversions) and platform information (DTP OpenAPI spec).
 - **Inference uncertainty.** 60-second sampling bounds precision. Method agreement is published.
+- **Metro minute resolution.** Metro realtime times are whole minutes, so metro delays are
+  quantised to 60 s around the 4:59 threshold.
 - **Coverage gaps.** API outages, GitHub Actions scheduling jitter and collector restarts. They are
   measured, not hidden.
 - **Cancellation visibility.** Only trips flagged `CANCELED` count as cancelled; partial
