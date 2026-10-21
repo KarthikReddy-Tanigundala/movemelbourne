@@ -1,0 +1,40 @@
+# Study definition. Every threshold used by the pipeline lives here or in dbt seeds.
+study:
+  # Filled in when continuous collection starts / stops (ISO 8601 with offset, Melbourne time).
+  window_start: null
+  window_end: null
+  target_days: 28
+  minimum_days: 14
+  timezone: Australia/Melbourne
+  core_modes: [metro, tram]
+
+static_schedule:
+  url: https://opendata.transport.vic.gov.au/dataset/3f4e292e-7f8a-4ffe-831f-1953be0fe448/resource/fb152201-859f-4882-9206-b768060b50ad/download/gtfs.zip
+  # Outer-zip folder -> mode. Folder layout verified on the 2026-10-16 release (docs/probe_results.md).
+  mode_branches:
+    "2": metro
+    "3": tram
+  stretch_mode_branches:
+    "1": vline
+    "4": bus
+
+inference:
+  # A last-captured prediction is accepted as the observed arrival only if the snapshot that
+  # carried it was taken within this many seconds of the predicted time (METHODOLOGY.md §2).
+  freshness_window_s: 120
+  # Vehicle-position fallback: within this distance of the stop with near-zero speed.
+  vp_proximity_m: 30
+  vp_max_speed_mps: 1.0
+
+quality:
+  min_match_rate: 0.95
+  delay_min_s: -1800
+  delay_max_s: 7200
+  min_sample_events: 30
+  coverage_gap_alert_hours: 2
+  min_poll_success_rate: 0.90
+
+analysis:
+  bootstrap_resamples: 2000
+  bootstrap_seed: 42
+  bunching_ratio: 0.5

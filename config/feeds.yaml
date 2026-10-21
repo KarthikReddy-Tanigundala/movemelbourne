@@ -1,0 +1,38 @@
+# GTFS-Realtime feed configuration. Paths verified against DTP's per-mode OpenAPI specs on
+# 2026-10-21 (see docs/sources.md). Nothing in the collector hard-codes these values.
+base_url: https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1
+
+# Poll each feed every 60 s. DTP caches responses for 30 s, so faster polling only returns
+# cached copies. Published limits are 20-27 calls/min/endpoint (OpenAPI) or 24/60 s/mode
+# (dataset page); we cap at 6 calls/min/mode, a 4x safety margin on the strictest reading.
+poll_interval_s: 60
+max_calls_per_min_per_mode: 6
+connect_timeout_s: 10
+read_timeout_s: 30
+max_runtime_min: 27
+
+# Auth negotiation order (ADR-008). DTP's documents disagree: the OpenAPI specs say
+# Ocp-Apim-Subscription-Key header or subscription-key query param; the dataset page says
+# header "KeyID"; the V/Line spec says "KeyId". HTTP header names are case-insensitive.
+auth_methods: [ocp_header, keyid_header, query_param]
+
+# Keep the first raw protobuf per feed per run (gzip) for audit and parser regression tests.
+keep_raw_pb_sample: true
+
+modes:
+  metro:
+    label: Metro Train
+    enabled: true
+    feeds: [trip-updates, vehicle-positions, service-alerts]
+  tram:
+    label: Yarra Trams
+    enabled: true
+    feeds: [trip-updates, vehicle-positions, service-alerts]
+  bus:
+    label: Metro & Regional Bus
+    enabled: false   # stretch: enable only after docs/volume_estimate.md says it fits (ADR-001)
+    feeds: [trip-updates, vehicle-positions]
+  vline:
+    label: V/Line
+    enabled: false   # stretch
+    feeds: [trip-updates, vehicle-positions]

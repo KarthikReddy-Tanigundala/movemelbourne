@@ -1,0 +1,34 @@
+# Secrets
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Data (snapshots live in the Hugging Face dataset, never in git)
+data/
+*.duckdb
+*.duckdb.wal
+*.pb
+!tests/fixtures/*.pb
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+dbt/profiles.yml
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.claude/
