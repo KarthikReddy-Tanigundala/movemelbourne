@@ -12,6 +12,8 @@ read_timeout_s: 30
 # 29-min loop + 30-min schedule: on Actions the next run queues (concurrency group) and starts as
 # soon as this one ends; locally the boundary gap is ~1 min, under inference.max_poll_gap_s.
 max_runtime_min: 29
+# Crash safety: flush buffered rows to chunk files this often; a crash loses at most this.
+checkpoint_every_min: 5
 
 # Auth negotiation order (ADR-008). DTP's documents disagree: the OpenAPI specs say
 # Ocp-Apim-Subscription-Key header or subscription-key query param; the dataset page says

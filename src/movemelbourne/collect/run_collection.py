@@ -1,4 +1,4 @@
-"""Collector entrypoint: poll every enabled feed for ~29 minutes, then write and publish.
+"""Collector entrypoint: poll every enabled feed for ~29 minutes, checkpointing as it goes.
 
 Usage::
 
@@ -9,21 +9,28 @@ Design (ADR-002):
 - One long poll loop per scheduled run (GitHub's minimum cron is 5 min and runs start late).
 - Each feed is polled every ``poll_interval_s``; a poll whose ``header.timestamp`` equals the
   previous one is a cached copy and is counted, not stored.
-- On exit (normal, timeout or Ctrl-C) one Parquet per feed per mode is written under a run
-  folder that mirrors the dataset layout, plus one coverage row per feed, and the folder is
-  uploaded to Hugging Face in a single commit. The process exits non-zero only AFTER writing and
-  uploading whatever it has, so a partial run is never thrown away.
+- Crash safety: every ``checkpoint_every_min`` the buffered rows of each feed are written to a
+  numbered chunk file (``run_<id>_cNNN.parquet``) and the run's coverage rows are rewritten, all
+  atomically (temp file + rename), so a power cut loses at most one checkpoint interval and never
+  leaves a corrupt file. The run folder mirrors the dataset layout.
+- On exit (normal, timeout or Ctrl-C) the last chunk is written, the folder is copied to the local
+  lake and uploaded to Hugging Face in a single commit. The process exits non-zero only AFTER
+  writing and uploading whatever it has.
+- Recovery: on start, any earlier run folder whose state is not ``uploaded`` (a crash, a failed
+  upload) and that has not been written to recently is published and uploaded first.
 """
 
 from __future__ import annotations
 
 import argparse
 import gzip
+import json
 import logging
 import os
 import signal
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -41,6 +48,8 @@ from movemelbourne.utils.power import keep_awake
 from movemelbourne.utils.timeutil import epoch_to_local
 
 logger = logging.getLogger("movemelbourne.collect")
+
+STATE_FILE = "_state.json"  # inside the run folder, never uploaded (uploads take raw/** only)
 
 FEED_DIRS = {
     "trip-updates": "trip_updates",
@@ -90,6 +99,7 @@ class FeedStats:
     last_error: str | None = None
     rows: list[dict] = field(default_factory=list, repr=False)
     raw_sample: bytes | None = field(default=None, repr=False)
+    sample_written: bool = field(default=False, repr=False)
 
 
 def default_run_id() -> str:
@@ -169,11 +179,19 @@ class Collector:
             result.n_bytes,
         )
 
-    def run(self) -> None:
-        """Poll every feed every ``poll_interval_s`` until the deadline."""
+    def run(
+        self,
+        on_checkpoint: Callable[[], None] | None = None,
+        checkpoint_every_s: float = 300,
+    ) -> None:
+        """Poll every feed every ``poll_interval_s`` until the deadline, checkpointing as it goes."""
         deadline = time.monotonic() + self.max_runtime_s
         next_due = {key: time.monotonic() for key in self.stats}
+        next_checkpoint = time.monotonic() + checkpoint_every_s
         while not self._stop and time.monotonic() < deadline:
+            if on_checkpoint is not None and time.monotonic() >= next_checkpoint:
+                on_checkpoint()
+                next_checkpoint = time.monotonic() + checkpoint_every_s
             now = time.monotonic()
             for key, due in sorted(next_due.items(), key=lambda kv: kv[1]):
                 if self._stop or time.monotonic() >= deadline:
@@ -194,55 +212,187 @@ class Collector:
                 time.sleep(min(sleep_for, max(deadline - time.monotonic(), 0), 5))
 
 
+def _atomic_write_table(table: pa.Table, path: Path) -> None:
+    """Write Parquet via a temp file + rename, so a crash never leaves a half-written file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    pq.write_table(table, tmp, compression="zstd")
+    os.replace(tmp, path)
+
+
+def _atomic_write_bytes(data: bytes, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)
+
+
+def read_state(run_dir: Path) -> dict:
+    """The run's local state file ({} if absent)."""
+    path = run_dir / STATE_FILE
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
+def write_state(run_dir: Path, **values: object) -> None:
+    """Merge ``values`` into the run's state file (atomically)."""
+    run_dir.mkdir(parents=True, exist_ok=True)
+    state = read_state(run_dir) | values | {"updated_utc": int(time.time())}
+    _atomic_write_bytes(json.dumps(state).encode(), run_dir / STATE_FILE)
+
+
+class RunWriter:
+    """Writes a run's output incrementally: one chunk file per feed per checkpoint."""
+
+    def __init__(self, out_root: Path, run_id: str, run_start: int) -> None:
+        self.run_id = run_id
+        self.run_start = run_start
+        self.run_dir = out_root / run_id
+        self.dt = epoch_to_local(run_start).strftime("%Y-%m-%d")
+        self.n_checkpoints = 0
+        write_state(self.run_dir, status="running", run_id=run_id, run_start_utc=run_start)
+
+    def checkpoint(self, collector: Collector, *, final: bool = False) -> None:
+        """Flush buffered rows to new chunk files and rewrite the coverage rows."""
+        chunk = self.n_checkpoints
+        for stats in collector.stats.values():
+            if stats.rows:
+                table = to_table(stats.feed, stats.rows)
+                path = (
+                    self.run_dir
+                    / "raw"
+                    / "realtime"
+                    / FEED_DIRS[stats.feed]
+                    / f"mode={stats.mode}"
+                    / f"dt={self.dt}"
+                    / f"run_{self.run_id}_c{chunk:03d}.parquet"
+                )
+                _atomic_write_table(table, path)
+                stats.rows_written += table.num_rows
+                stats.rows = []
+            if stats.raw_sample is not None and not stats.sample_written:
+                sample = (
+                    self.run_dir
+                    / "raw"
+                    / "pb_samples"
+                    / f"mode={stats.mode}"
+                    / f"dt={self.dt}"
+                    / f"{FEED_DIRS[stats.feed]}_{self.run_id}.pb.gz"
+                )
+                _atomic_write_bytes(gzip.compress(stats.raw_sample), sample)
+                stats.sample_written = True
+        self._write_coverage(collector, run_end=int(time.time()))
+        self.n_checkpoints += 1
+        write_state(
+            self.run_dir, status="complete" if final else "running", checkpoints=self.n_checkpoints
+        )
+        logger.info("checkpoint %d written%s", chunk, " (final)" if final else "")
+
+    def _write_coverage(self, collector: Collector, run_end: int) -> None:
+        rows = []
+        for stats in collector.stats.values():
+            row = {
+                k: v
+                for k, v in asdict(stats).items()
+                if k not in ("rows", "raw_sample", "sample_written")
+            }
+            rows.append(
+                {
+                    "run_id": self.run_id,
+                    "collector": collector_name(),
+                    "run_start_utc": self.run_start,
+                    "run_end_utc": run_end,
+                    **row,
+                }
+            )
+        path = self.run_dir / "raw" / "coverage" / f"dt={self.dt}" / f"run_{self.run_id}.parquet"
+        _atomic_write_table(pa.Table.from_pylist(rows, schema=COVERAGE_SCHEMA), path)
+
+
 def write_run(
     collector: Collector, out_root: Path, run_id: str, run_start: int, run_end: int
 ) -> Path:
-    """Write per-feed Parquet, raw samples and the coverage row into ``out_root/<run_id>``."""
-    run_dir = out_root / run_id
-    dt = epoch_to_local(run_start).strftime("%Y-%m-%d")
-    coverage_rows = []
-    for stats in collector.stats.values():
-        if stats.rows:
-            table = to_table(stats.feed, stats.rows)
-            path = (
-                run_dir
-                / "raw"
-                / "realtime"
-                / FEED_DIRS[stats.feed]
-                / f"mode={stats.mode}"
-                / f"dt={dt}"
-                / f"run_{run_id}.parquet"
-            )
-            path.parent.mkdir(parents=True, exist_ok=True)
-            pq.write_table(table, path, compression="zstd")
-            stats.rows_written = table.num_rows
-        if stats.raw_sample is not None:
-            sample = (
-                run_dir
-                / "raw"
-                / "pb_samples"
-                / f"mode={stats.mode}"
-                / f"dt={dt}"
-                / f"{FEED_DIRS[stats.feed]}_{run_id}.pb.gz"
-            )
-            sample.parent.mkdir(parents=True, exist_ok=True)
-            sample.write_bytes(gzip.compress(stats.raw_sample))
-        row = {k: v for k, v in asdict(stats).items() if k not in ("rows", "raw_sample")}
-        coverage_rows.append(
-            {
-                "run_id": run_id,
-                "collector": collector_name(),
-                "run_start_utc": run_start,
-                "run_end_utc": run_end,
-                **row,
-            }
-        )
-    cov_path = run_dir / "raw" / "coverage" / f"dt={dt}" / f"run_{run_id}.parquet"
-    cov_path.parent.mkdir(parents=True, exist_ok=True)
-    pq.write_table(
-        pa.Table.from_pylist(coverage_rows, schema=COVERAGE_SCHEMA), cov_path, compression="zstd"
+    """Write everything still buffered as one final checkpoint (one-shot convenience)."""
+    writer = RunWriter(out_root, run_id, run_start)
+    writer.checkpoint(collector, final=True)
+    return writer.run_dir
+
+
+def publish_and_upload(run_dir: Path, run_id: str, *, lake: bool, upload: bool) -> bool:
+    """Copy a run to the lake and upload it; record the outcome in the run's state file."""
+    if lake:
+        logger.info("published %d files to the local lake", publish_to_lake(run_dir))
+        write_state(run_dir, status="published")
+    repo, token = config.hf_dataset_repo(), config.hf_token()
+    if not upload or not repo:
+        logger.info("upload skipped; run kept at %s", run_dir)
+        if not lake:
+            write_state(run_dir, status="kept_local")
+        return True
+    if not token:
+        logger.error("HF_TOKEN not set; run kept locally at %s", run_dir)
+        return False
+    try:
+        upload_run_folder(run_dir, repo, token, run_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("upload failed, run kept at %s: %s", run_dir, redact(str(exc)))
+        write_state(run_dir, status="upload_failed")
+        return False
+    write_state(run_dir, status="uploaded")
+    return True
+
+
+def recover_unfinished_runs(
+    out_root: Path, current_run_id: str, *, lake: bool, upload: bool, idle_s: float = 600
+) -> list[str]:
+    """Publish/upload earlier runs that crashed or failed to upload. Returns recovered run ids.
+
+    A folder written to within ``idle_s`` may belong to a collector that is still running (for
+    example a bridge run overlapping a scheduled one), so it is left alone for now.
+    """
+    if not out_root.exists():
+        return []
+    finished = (
+        {"uploaded"}
+        if upload and config.hf_dataset_repo()
+        else {"uploaded", "published", "kept_local"}
     )
-    return run_dir
+    recovered = []
+    for run_dir in sorted(p for p in out_root.iterdir() if p.is_dir()):
+        if run_dir.name == current_run_id or not (run_dir / "raw").exists():
+            continue
+        state = read_state(run_dir)
+        # No state file = a run from before checkpointing existed (it wrote and uploaded in one
+        # go); every run since writes its state file on start.
+        if not state or state.get("status") in finished:
+            continue
+        newest = max((f.stat().st_mtime for f in run_dir.rglob("*") if f.is_file()), default=0)
+        if time.time() - newest < idle_s:
+            continue
+        logger.warning(
+            "recovering unfinished run %s (state=%s)", run_dir.name, state.get("status", "none")
+        )
+        for tmp in run_dir.rglob("*.tmp"):  # half-written leftovers of a crash
+            tmp.unlink()
+        if publish_and_upload(run_dir, run_dir.name, lake=lake, upload=upload):
+            recovered.append(run_dir.name)
+    return recovered
+
+
+def aligned_runtime_min(
+    now_epoch: float, max_runtime_min: float, slot_min: float, margin_s: float = 45
+) -> float:
+    """Runtime that ends ``margin_s`` before the next slot boundary, capped at ``max_runtime_min``.
+
+    The local task fires at :00 and :30 with IgnoreNew; a run that starts late (after a reboot or
+    sleep, Task Scheduler runs the missed slot immediately) would still be running at the next
+    slot and that slot would be skipped. Ending at the boundary keeps runs back to back. If the
+    next boundary is under 2 minutes away, the run stretches to the boundary after that.
+    """
+    slot_s = slot_min * 60
+    until_next = slot_s - (now_epoch % slot_s) - margin_s
+    if until_next < 120:
+        until_next += slot_s
+    return min(max_runtime_min, until_next / 60)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -256,11 +406,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out-dir", type=Path, default=config.DATA_DIR / "runs")
     parser.add_argument("--no-upload", action="store_true", help="keep output local only")
     parser.add_argument(
+        "--checkpoint-every-min",
+        type=float,
+        default=feeds_cfg.get("checkpoint_every_min", 5),
+        help="write buffered rows to disk this often (crash safety)",
+    )
+    parser.add_argument(
         "--no-lake",
         action="store_true",
         help="don't copy the run into data/lake (used in GitHub Actions)",
     )
+    parser.add_argument(
+        "--align-to-slot-min",
+        type=float,
+        help="end the run just before the next multiple of this many minutes past the hour "
+        "(local scheduled task: a late start would otherwise overlap and skip the next slot)",
+    )
     args = parser.parse_args(argv)
+    if args.align_to_slot_min:
+        args.max_runtime_min = aligned_runtime_min(
+            time.time(), args.max_runtime_min, args.align_to_slot_min
+        )
 
     key = config.api_key()
     if not key:
@@ -289,16 +455,24 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, collector.request_stop)
 
+    recovered = recover_unfinished_runs(
+        args.out_dir, args.run_id, lake=not args.no_lake, upload=not args.no_upload
+    )
+    if recovered:
+        logger.info("recovered %d earlier run(s): %s", len(recovered), ", ".join(recovered))
+
     logger.info(
         "run %s starting: modes=%s runtime=%.0f min", args.run_id, modes, args.max_runtime_min
     )
     run_start = int(time.time())
+    writer = RunWriter(args.out_dir, args.run_id, run_start)
     with keep_awake():  # a sleeping PC would silently stop the local bridge collector
-        collector.run()
-    run_end = int(time.time())
-    run_dir = write_run(collector, args.out_dir, args.run_id, run_start, run_end)
-    if not args.no_lake:
-        logger.info("published %d files to the local lake", publish_to_lake(run_dir))
+        collector.run(
+            on_checkpoint=lambda: writer.checkpoint(collector),
+            checkpoint_every_s=args.checkpoint_every_min * 60,
+        )
+    writer.checkpoint(collector, final=True)
+    run_dir = writer.run_dir
 
     for s in collector.stats.values():
         logger.info(
@@ -313,19 +487,8 @@ def main(argv: list[str] | None = None) -> int:
             s.auth_method,
         )
 
-    exit_code = 0
-    repo, token = config.hf_dataset_repo(), config.hf_token()
-    if args.no_upload or not repo:
-        logger.info("upload skipped; run kept at %s", run_dir)
-    elif not token:
-        logger.error("HF_TOKEN not set; run kept locally at %s", run_dir)
-        exit_code = 1
-    else:
-        try:
-            upload_run_folder(run_dir, repo, token, args.run_id)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("upload failed, run kept at %s: %s", run_dir, redact(str(exc)))
-            exit_code = 1
+    ok = publish_and_upload(run_dir, args.run_id, lake=not args.no_lake, upload=not args.no_upload)
+    exit_code = 0 if ok else 1
 
     if collector.auth_failed_modes:
         exit_code = 1

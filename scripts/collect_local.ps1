@@ -25,7 +25,8 @@ $LogDir = Join-Path $Repo 'data\logs'
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $Log = Join-Path $LogDir ("collector_{0:yyyy-MM-dd}.log" -f (Get-Date))
 
-$CollectorArgs = @('-m', 'movemelbourne.collect.run_collection', '--max-runtime-min', "$MaxRuntimeMin")
+$CollectorArgs = @('-m', 'movemelbourne.collect.run_collection', '--max-runtime-min', "$MaxRuntimeMin",
+                   '--align-to-slot-min', '30')
 if ($NoUpload) { $CollectorArgs += '--no-upload' }
 
 # Python logs to stdout; native stderr would become terminating errors under 'Stop' in

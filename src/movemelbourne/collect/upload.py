@@ -27,6 +27,8 @@ def upload_run_folder(folder: Path, repo_id: str, token: str, run_id: str) -> st
         repo_id=repo_id,
         repo_type="dataset",
         commit_message=f"collector run {run_id}",
+        allow_patterns=["raw/**"],  # never the local state file
+        ignore_patterns=["**/*.tmp"],
     )
     logger.info("uploaded run %s to %s (%s)", run_id, repo_id, getattr(commit, "oid", commit))
     return str(getattr(commit, "oid", commit))

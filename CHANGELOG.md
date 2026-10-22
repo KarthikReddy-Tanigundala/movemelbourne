@@ -18,6 +18,12 @@
 - CI, coverage-check, static-snapshot and dbt-docs workflows; ADR-001…008, METHODOLOGY,
   ARCHITECTURE, generated DATA_DICTIONARY.
 
+### Changed after the first night of collection (22 Oct 2026)
+- Collector checkpoints every 5 minutes into atomic chunk files and rewrites coverage, so a crash
+  loses at most one interval; unfinished runs are recovered (published + uploaded) on next start.
+- Local runs align to the :00/:30 schedule after a late start (no skipped slot after a reboot).
+- Uploads take `raw/**` only (local state and temp files never leave the machine).
+
 ### Changed after the first live test (21 Oct 2026)
 - Auth: `KeyID` first (the OpenAPI header returns 401).
 - Vehicle-position method uses proximity to the trip's scheduled stops (the feed has no

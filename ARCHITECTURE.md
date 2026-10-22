@@ -24,7 +24,7 @@ flowchart LR
 
 | Path | Responsibility |
 |---|---|
-| `src/movemelbourne/collect/` | `client.py` (auth negotiation, rate limit, retries, redaction), `parse.py` (protobuf → fixed schema + `extra_json`), `run_collection.py` (poll loop, run output, coverage), `upload.py` (one HF commit per run) |
+| `src/movemelbourne/collect/` | `client.py` (auth negotiation, rate limit, retries, redaction), `parse.py` (protobuf → fixed schema + `extra_json`), `run_collection.py` (poll loop, atomic 5-min checkpoints, coverage, recovery of unfinished runs), `upload.py` (one HF commit per run) |
 | `src/movemelbourne/ingest/` | `static_snapshot.py` (streamed download, SHA-256 versioning, nested-zip extraction, all-string Parquet), `load_schedule.py` (service calendar + DST-correct `ref_epoch`, validation report) |
 | `src/movemelbourne/load/` | `sync_from_hf.py` (incremental dataset sync into the lake), `bronze.py` (DuckDB views, typed empty views for missing sources) |
 | `src/movemelbourne/analysis/` | `bootstrap.py` (trip-clustered bootstrap CI) |

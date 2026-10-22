@@ -34,6 +34,25 @@ fall at the same minute past every half hour, which would bias by time of day. W
 - Locally, the gap is about a minute, below `max_poll_gap_s` (180 s), so events in it still count
   as collected.
 
+### Crash safety (added 22 Oct 2026, after the first outage)
+
+The first night showed what a collector on a laptop meets: an unclean reboot at ~01:00 killed a
+run before it wrote anything, and later the laptop slept on battery from ~03:00 to 12:10.
+
+- **Checkpoints:** every 5 minutes (`checkpoint_every_min`) each feed's buffered rows go to a new
+  chunk file (`run_<id>_cNNN.parquet`) and the run's coverage rows are rewritten. Writes are
+  atomic (temp file + rename), so a crash loses at most one interval and never leaves a corrupt
+  Parquet that would break the warehouse build.
+- **Recovery:** each run folder has a local `_state.json` (`running` → `complete` → `published`
+  → `uploaded`). On start, the collector publishes and uploads any earlier run that is not
+  finished and has been idle for 10 minutes, after deleting half-written temp files. Verified
+  by force-killing a live run and restarting.
+- **Slot alignment (local only):** after a reboot or sleep, Task Scheduler runs the missed slot
+  late. A 29-minute run would then overlap the next slot, which IgnoreNew skips.
+  `--align-to-slot-min 30` ends each local run just before the next :00/:30.
+- **Lesson:** keep-awake requests and wake timers do not survive a closed lid or battery power
+  policies. A laptop is a bridge, not the primary collector; GitHub Actions should be.
+
 ## Consequences
 
 - Up to ~48 Hugging Face commits per day, well inside its limits; the git repo stays small.

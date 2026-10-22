@@ -809,3 +809,5 @@ Recorded during the build (2026-10-21). Each is backed by an ADR or a test.
 | 18 | VP fallback via `STOPPED_AT` / proximity to `stop_id` | DTP VP feeds have no status, stop_id or speed → proximity to the trip's scheduled stops, positions ≤ 180 s old | `docs/feed_behaviour.md`, ADR-004 |
 | 19 | (not anticipated) | Metro realtime times are whole minutes; quantised OTP documented | ADR-007 |
 | 20 | Run id = run id + hostname | Hostname removed (run ids are public in the dataset) | `run_collection.py` |
+| 21 | "Write what it has before exiting" | Not enough: a power cut gives no exit. Atomic 5-min checkpoints + recovery of unfinished runs on next start | ADR-002, `test_collector.py` |
+| 22 | Local cron every 30 min | Late starts after reboot/sleep overlapped the next slot (IgnoreNew skips it); local runs now end at the next :00/:30 | ADR-002 |
