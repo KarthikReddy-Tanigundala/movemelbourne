@@ -49,7 +49,7 @@ flowchart LR
     DBT --> DOCS["dbt docs → GitHub Pages"]
 ```
 
-Details: [ARCHITECTURE.md](ARCHITECTURE.md) · design decisions: [docs/adr](docs/adr)
+Details: [ARCHITECTURE.md](ARCHITECTURE.md) · design decisions: [docs/adr](docs/adr) · **new here? [Beginner's guide](docs/BEGINNERS_GUIDE.md)**
 
 ## Quickstart (5 minutes, no API key)
 
