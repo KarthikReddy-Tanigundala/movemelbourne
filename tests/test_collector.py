@@ -78,7 +78,8 @@ def test_auth_failure_marks_mode(trip_updates_pb):
     assert collector.auth_failed_modes == {"tram"}
 
 
-def test_write_run_layout(tmp_path, trip_updates_pb, vehicle_positions_pb):
+def test_write_run_layout(tmp_path, trip_updates_pb, vehicle_positions_pb, monkeypatch):
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)  # the label is "github-actions" in CI
     collector = Collector(
         FakeClient({"trip-updates": trip_updates_pb, "vehicle-positions": vehicle_positions_pb}),
         {"metro": ["trip-updates", "vehicle-positions"]},
