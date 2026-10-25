@@ -9,17 +9,18 @@ in force each day, infers when each train and tram really arrived, and publishes
 performance, delay distributions, reliability, delay hotspots and tram bunching. Every figure
 comes with its coverage and sample size.
 
-> **Status (21 Oct 2026):** pipeline, warehouse, tests, dashboard and docs are built. The live
-> feeds have been probed and a first 6-minute live run went end to end (Hugging Face upload,
-> warehouse build, 100% trip match rate). **The 28-day collection study started on 22 Oct 2026** (no findings until it
-> has run at least 14 days). The dashboard currently shows a **synthetic sample**, labelled as such.
-> What the live feeds actually do: [docs/feed_behaviour.md](docs/feed_behaviour.md).
+> **Status (25 Oct 2026):** the **28-day collection study is running** (started 22 Oct; GitHub
+> Actions collector live since 25 Oct, with a local bridge collector as backup). No findings until
+> at least 14 days are collected. The dashboard shows a clearly labelled **synthetic sample** until
+> then. What the live feeds actually do: [docs/feed_behaviour.md](docs/feed_behaviour.md) ·
+> data volumes: [docs/volume_estimate.md](docs/volume_estimate.md).
 
 | | Link |
 |---|---|
 | 📊 Dashboard (Streamlit) | `<STREAMLIT_URL>` (MANUAL: deploy) |
-| 🗃️ Collected data (Hugging Face) | `https://huggingface.co/datasets/Karry001/movemelbourne-gtfsr` (MANUAL: create) |
-| 🧬 dbt docs and lineage | `https://karthikreddy-tanigundala.github.io/movemelbourne/` (after first push + Pages enabled) |
+| 🗃️ Collected data (Hugging Face) | [Karry001/movemelbourne-gtfsr](https://huggingface.co/datasets/Karry001/movemelbourne-gtfsr) |
+| 🧬 dbt docs and lineage | [karthikreddy-tanigundala.github.io/movemelbourne](https://karthikreddy-tanigundala.github.io/movemelbourne/) |
+| ⚙️ Live collector | [collect-realtime runs](https://github.com/KarthikReddy-Tanigundala/movemelbourne/actions/workflows/collect.yml) |
 | 📄 Study report | [docs/STUDY_REPORT.md](docs/STUDY_REPORT.md) (after the study) |
 
 <!-- MANUAL: record docs/images/demo.gif and uncomment
@@ -127,7 +128,12 @@ Full detail: [METHODOLOGY.md](METHODOLOGY.md) · validation plan: [docs/validati
 
 ## Demo status and persistence
 
-- **Study window:** collection started **22 Oct 2026 00:35 AEDT** (local bridge collector); planned 28 days to 19 Nov 2026, covering Melbourne Cup Day (3 Nov). Recorded in `config/study.yaml`.
+- **Study window:** collection started **22 Oct 2026 00:35 AEDT** (local bridge collector);
+  planned 28 days to 19 Nov 2026, covering Melbourne Cup Day (3 Nov). Recorded in
+  `config/study.yaml`.
+- **Collectors:** GitHub Actions every 30 minutes since 25 Oct 2026 (primary), plus the local
+  Windows task as a backup. The laptop alone missed many hours on 22–25 Oct (sleep on battery,
+  an unclean reboot); those gaps are in the coverage report, not hidden.
 - **Dashboard:** shows a fixed study, not live data. A banner and `manifest.json` say which data it
   shows (synthetic sample or study window). The optional "Live now" page shows current vehicle
   positions when an API key is configured.
@@ -157,10 +163,10 @@ Full detail: [METHODOLOGY.md](METHODOLOGY.md) · validation plan: [docs/validati
 
 ## MANUAL checklist (Karthik)
 
-- [ ] Register the Transport Victoria Open Data account; put `TVOD_API_KEY` in `.env`
-- [ ] Create the HF dataset `Karry001/movemelbourne-gtfsr` (public, CC BY 4.0 card) and a write token
-- [ ] Run the probe; register the local collector task; record the study start in `config/study.yaml`
-- [ ] Push to GitHub; add Actions secrets `TVOD_API_KEY`, `HF_TOKEN`; enable Pages (source: Actions)
+- [x] Register the Transport Victoria Open Data account; put `TVOD_API_KEY` in `.env`
+- [x] Create the HF dataset `Karry001/movemelbourne-gtfsr` (public, CC BY 4.0 card) and a write token
+- [x] Run the probe; register the local collector task; record the study start in `config/study.yaml`
+- [x] Push to GitHub; add Actions secrets `TVOD_API_KEY`, `HF_TOKEN`; enable Pages (source: Actions)
 - [ ] Deploy `app/streamlit_app.py` on Streamlit Community Cloud (Python 3.12; optional secret `TVOD_API_KEY`)
 - [ ] Build the Power BI report from [powerbi/](powerbi/SEMANTIC_MODEL.md); screenshots to `docs/images/`
 - [ ] Record `docs/images/demo.gif`
