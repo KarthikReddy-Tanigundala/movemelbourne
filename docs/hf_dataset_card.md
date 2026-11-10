@@ -99,8 +99,11 @@ Measured on the live feeds (details in the repo's `docs/feed_behaviour.md`):
 import duckdb
 from huggingface_hub import snapshot_download
 
-path = snapshot_download("Karry001/movemelbourne-gtfsr", repo_type="dataset",
-                         allow_patterns=["raw/realtime/trip_updates/**", "raw/coverage/**"])
+path = snapshot_download(
+    "Karry001/movemelbourne-gtfsr",
+    repo_type="dataset",
+    allow_patterns=["raw/realtime/trip_updates/**", "raw/coverage/**"],
+)
 duckdb.sql(f"""
     select mode, count(distinct feed_ts) as snapshots, count(*) as rows
     from read_parquet('{path}/raw/realtime/trip_updates/**/*.parquet', union_by_name = true)

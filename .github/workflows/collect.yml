@@ -1,8 +1,15 @@
 name: collect-realtime
+# GitHub's scheduled triggers are heavily throttled (the */30 cron fired every 4-7 h), so each run
+# queues its own successor at the start: the next run waits in the concurrency group and begins as
+# soon as this one ends. The cron stays as a backup restart if the chain ever breaks. To stop the
+# chain, set the repository variable COLLECT_CHAIN to "off" (Settings > Variables > Actions).
 on:
   schedule:
-    - cron: "*/30 * * * *"      # UTC; a late start just queues behind the running loop (no overlap)
+    - cron: "*/30 * * * *"
   workflow_dispatch:
+permissions:
+  contents: read
+  actions: write
 concurrency:
   group: collect-realtime
   cancel-in-progress: false      # never overlap two collectors
@@ -11,6 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 36
     steps:
+      - name: Queue the next run (self-chain)
+        if: vars.COLLECT_CHAIN != 'off'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run collect.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.ref_name }}" || echo "::warning::could not queue next run"
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --frozen --no-default-groups

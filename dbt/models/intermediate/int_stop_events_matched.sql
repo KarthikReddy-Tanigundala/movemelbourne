@@ -141,9 +141,13 @@ select
     tu_observed_arrival_epoch,
     vp_arrival_epoch,
     vp_signal,
-    case when trip_is_canceled then null else observed_arrival_epoch end as observed_arrival_epoch,
-    case when trip_is_canceled then null else inference_method end as inference_method,
-    case when trip_is_canceled then null
+    -- A cancelled trip or a stop the feed flags SKIPPED has no arrival: a vehicle position that
+    -- happens to pass within range of a skipped stop (seen on trams, 27 Oct) must not become a delay.
+    case when trip_is_canceled or coalesce(any_skipped, false) then null
+         else observed_arrival_epoch end as observed_arrival_epoch,
+    case when trip_is_canceled or coalesce(any_skipped, false) then null
+         else inference_method end as inference_method,
+    case when trip_is_canceled or coalesce(any_skipped, false) then null
          else observed_arrival_epoch - scheduled_arrival_epoch end as delay_seconds,
     case
         when trip_is_canceled then 'cancelled'

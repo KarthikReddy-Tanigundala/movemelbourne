@@ -1,10 +1,10 @@
 name: static-snapshot
-# Weekly versioned copy of the GTFS Schedule release (ADR-005). Idempotent: an unchanged release
+# Daily-checked versioned copy of the GTFS Schedule release (ADR-005). Idempotent: an unchanged release
 # (same SHA-256) is skipped. A new version is also logged in docs/feed_versions.md, which keeps the
 # repository active so GitHub never disables the collector schedule (60-day inactivity rule).
 on:
   schedule:
-    - cron: "17 3 * * 1"   # Monday 03:17 UTC
+    - cron: "17 3 * * *"   # daily 03:17 UTC: DTP can republish (and rotate trip ids) mid-week
   workflow_dispatch:
 concurrency:
   group: static-snapshot

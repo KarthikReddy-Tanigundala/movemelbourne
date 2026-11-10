@@ -2,7 +2,7 @@
 
 The static timetable is a rolling 30-day file that DTP replaces weekly, so a realtime record from
 three weeks ago must be joined to the timetable that was in force then, not today's. Every
-release is therefore kept as an immutable ``feed_version = <download date>_<sha256[:8]>``.
+release is therefore kept as an immutable ``feed_version = <valid-from date>_<sha256[:8]>``.
 
     uv run python -m movemelbourne.ingest.static_snapshot              # download, convert, upload
     uv run python -m movemelbourne.ingest.static_snapshot --zip data/downloads/gtfs.zip --no-upload
@@ -61,6 +61,30 @@ def download(url: str, dest: Path) -> tuple[str, int]:
                 size += len(chunk)
     tmp.replace(dest)
     return digest.hexdigest(), size
+
+
+def resolve_release(static: dict) -> tuple[str, str | None]:
+    """Current download URL and publication date, looked up from the DTP CKAN catalogue.
+
+    DTP issues a new resource id when it republishes the timetable (the hard-coded URL 404'd on
+    2026-11-06), so the configured URL is only a fallback. Returns (url, last_modified date in
+    UTC, or None when the catalogue gave none).
+    """
+    api = static.get("ckan_package_show")
+    if api:
+        try:
+            response = requests.get(api, timeout=30)
+            response.raise_for_status()
+            resources = response.json()["result"]["resources"]
+            zips = [r for r in resources if str(r.get("format", "")).upper() == "ZIP"]
+            if zips:
+                best = max(zips, key=lambda r: r.get("last_modified") or r.get("created") or "")
+                stamp = best.get("last_modified") or best.get("created")
+                logger.info("CKAN resolved %s (modified %s)", best["url"], stamp)
+                return best["url"], (stamp[:10] if stamp else None)
+        except (requests.RequestException, KeyError, ValueError) as exc:
+            logger.warning("CKAN lookup failed (%s); using configured URL", exc)
+    return static["url"], None
 
 
 def sha256_file(path: Path) -> str:
@@ -184,10 +208,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--zip", type=Path, help="use an already-downloaded gtfs.zip")
     parser.add_argument("--include-stretch", action="store_true", help="also extract bus/V/Line")
     parser.add_argument("--no-upload", action="store_true")
+    parser.add_argument(
+        "--valid-from",
+        help="YYYY-MM-DD the release took effect (default: CKAN publication date, else today)",
+    )
     parser.add_argument("--force", action="store_true", help="convert even if already published")
     args = parser.parse_args(argv)
 
-    url = study["static_schedule"]["url"]
+    url, published_on = resolve_release(study["static_schedule"])
     downloaded_at = datetime.now(UTC)
     if args.zip:
         zip_path = args.zip
@@ -197,7 +225,8 @@ def main(argv: list[str] | None = None) -> int:
         zip_path = config.DATA_DIR / "downloads" / "gtfs.zip"
         logger.info("downloading %s", url)
         sha, size = download(url, zip_path)
-    feed_version = f"{downloaded_at:%Y%m%d}_{sha[:8]}"
+    valid_from = args.valid_from or published_on or f"{downloaded_at:%Y-%m-%d}"
+    feed_version = f"{valid_from.replace('-', '')}_{sha[:8]}"
     logger.info("feed_version %s (%s bytes, sha256 %s)", feed_version, f"{size:,}", sha)
 
     repo, token = config.hf_dataset_repo(), config.hf_token()
@@ -225,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
         "zip_bytes": size,
         "source_url": url,
         "downloaded_at_utc": downloaded_at.isoformat(timespec="seconds"),
-        "valid_from": f"{downloaded_at:%Y-%m-%d}",
+        "valid_from": valid_from,
     }
     version_dir = convert(zip_path, config.DATA_DIR / "static", feed_version, branches, meta)
     logger.info(
