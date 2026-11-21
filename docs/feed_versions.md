@@ -10,3 +10,4 @@ SHA-256 prefix) in the Hugging Face dataset (ADR-005). New rows are appended by
 | 20261025_e5879f00 | 2026-10-25 05:08 |
 | 20261106_b8d4978a | 2026-11-10 06:30 (manual; DTP republished 2026-11-06, trip ids rotated) |
 | 20261114_424be6c9 | 2026-11-15 10:58 |
+| 20261120_e47c585e | 2026-11-21 11:07 |
